@@ -1,0 +1,1218 @@
+﻿//+------------------------------------------------------------------+
+//|                              DokaKotsu_indicator_7.mq5            |
+//|   バージョン : Ver7.0     修正日 : 2026-06-17 (JST)         |
+//|                                                                  |
+//|  ■■ 最重要・絶対ルール(EAと共通) ■■                            |
+//|    売買ロジックは すべてこのインジ側 に持たせる。               |
+//|    EA(DokaKotsu_EA)はロジックを一切持たず、ここが出す           |
+//|    シグナル(BUY=buf7 / SELL=buf8 / EXIT=buf9)を実行するだけ。  |
+//|    EAが持つのは固定概念・リスク管理のみ(時間/ロット/SL/建値)。 |
+//|    → 両方にロジックを置かない。長期使用でぶつかり、バグが       |
+//|       消えなくなるため厳禁。変更時は必ずこの分担を守ること。    |
+//|                                                                  |
+//|  ■ Ver3 = 基本版(まず素直に動かす)                              |
+//|    エントリー: KAMA10 の色だけで判断。                           |
+//|      ・グレー(平行)= レンジ → 取引しない(徹底)                |
+//|      ・緑(上昇点灯) → BUY / オレンジ(下降点灯) → SELL          |
+//|    決済: 平均足(SmoothedHA)が逆色に転換、またはベースMAが逆転。  |
+//|    任意フィルター(M1スパイク/圧縮/オーバーシュート/EMA同時点灯)  |
+//|    は 基本版では全てOFF。慣れたら1つずつONで検証する。           |
+//|    (表示のみ・発注はEAが行う)                                   |
+//|                                                                  |
+//|  ベースMA(InpWmaType): 既定 FRAMA(期間20)。傾き(slope)が          |
+//|    +しきい値→上(緑)/ -しきい値→下(オレンジ)/ 間→平行(グレー)。   |
+//|    グレーの間はエントリー禁止(=レンジは触らない)。              |
+//|                                                                  |
+//|  任意フィルター(基本版OFF):                                     |
+//|    ①InpFilM1Spike     : M1スパイク点灯を要求                    |
+//|    ②InpFilSqueeze     : 圧縮(スクイーズ)中は弾く               |
+//|    ③InpFilOvershoot   : オーバーシュート(急変)を弾く           |
+//|    ⑤InpRequireEmaColit: 方向MAとEMA点灯の同時点灯を要求          |
+//|                                                                  |
+//|  ※M5チャートに入れて使う前提(_Period=M5想定)。                |
+//|                                                                  |
+//|  ■ Ver5.1 変更点(2026-06-14)                                     |
+//|    ・背景色: 上昇=Gray / 下降=RGB(34,116,128) / 中立=#222222      |
+//|    ・確認本数 既定 2→1 (1本目の色で即エントリー=1本早い)         |
+//|    ・グレー基準の再エントリー: グレーを挟んだら本命=ロック解除、  |
+//|      グレー無しの直接フリップは調整波=見送り(コード14)。         |
+//|    ・A案:実ポジ同期(ライブ足)。EAがノーポジなら保有解除し再武装。 |
+//|    ・背景(BG_)の掃除を OnDeinit → OnInit へ移管(EA非連動)。      |
+//|    ・情報ラベル(ファイル名)を既定OFF(InpShowInfoLabel)。        |
+//|                                                                  |
+//|  ■ Ver7.0 変更点(2026-06-17)                                     |
+//|    ②決済用平均足を 前後とも 期間5・SMOOTHED(SMMA) に変更。       |
+//|      → 平均足が滑らかになり、ダマシの色転換による早すぎる決済を   |
+//|        抑える(その分、決済はやや遅くなる=FW/BTで要確認)。       |
+//|    ③表示の色保持 InpColorHoldBars を追加(背景/方向MA線)。       |
+//|      新しい色がこの本数続くまで前の色を保持し、1本だけの          |
+//|      色の途切れ(背景の黒帯)を埋めて連続表示にする。            |
+//|      ※表示のみ。エントリー判定は raw wmaDir のままで挙動不変。   |
+//|    ①連敗ロット縮小/停止は『リスク管理=EA側』の分担のためEAに    |
+//|      実装する(本インジには入れない。絶対ルール遵守)。          |
+//+------------------------------------------------------------------+
+#property copyright "DokaKotsu"
+#property version   "8.00"
+
+//=== バージョン情報(最新版か確認用) ==============================
+#define DK_VERSION   "Ver8.0"
+#define DK_BUILD     "2026-06-18 Ver8.2 土台+15分足3色(NORM灰/UP/DOWN桃)・MA_DOWN赤橙・幅入力(0=非表示)・理由buf12へ移動"
+#property indicator_chart_window
+#property indicator_buffers 13
+#property indicator_plots   11
+
+//--- 15分足オーバーレイ: M15グレー(レンジ)
+#property indicator_label1  "15分足 NORM"
+#property indicator_type1   DRAW_LINE
+#property indicator_color1  clrGray
+#property indicator_width1  5
+//--- 15分足オーバーレイ: M15上昇
+#property indicator_label2  "15分足 UP"
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrAqua
+#property indicator_width2  5
+//--- 方向MA 上昇(緑)
+#property indicator_label3  "MA_UP"
+#property indicator_type3   DRAW_LINE
+#property indicator_color3  clrLime
+#property indicator_width3  5
+//--- 方向MA 下降(オレンジレッド)
+#property indicator_label4  "MA_DOWN"
+#property indicator_type4   DRAW_LINE
+#property indicator_color4  clrOrangeRed
+#property indicator_width4  5
+//--- 方向MA 平行(灰=グレーゾーン)
+#property indicator_label5  "MA_FLAT"
+#property indicator_type5   DRAW_LINE
+#property indicator_color5  clrDimGray
+#property indicator_width5  5
+//--- SMA20 センターライン(5段階カラー)
+#property indicator_label6  "SMA20_CENTER"
+#property indicator_type6   DRAW_COLOR_LINE
+#property indicator_color6  clrLightGray,clrLightSkyBlue,clrGray,clrPlum,clrMagenta
+#property indicator_width6  1
+//--- BUYエントリー矢印
+#property indicator_label7  "ENTRY_BUY"
+#property indicator_type7   DRAW_ARROW
+#property indicator_color7  clrAqua
+#property indicator_width7  4
+//--- SELLエントリー矢印
+#property indicator_label8  "ENTRY_SELL"
+#property indicator_type8   DRAW_ARROW
+#property indicator_color8  clrRed
+#property indicator_width8  4
+//--- 終了マーカー(×)
+#property indicator_label9  "EXIT"
+#property indicator_type9   DRAW_ARROW
+#property indicator_color9  clrYellow
+#property indicator_width9  5
+
+#property indicator_label10 "OVERSHOOT"
+#property indicator_type10  DRAW_ARROW
+#property indicator_color10 clrMagenta
+#property indicator_width10 2
+//--- 15分足オーバーレイ: M15下降(DeepPink)
+#property indicator_label11 "15分足 DOWN"
+#property indicator_type11  DRAW_LINE
+#property indicator_color11 clrDeepPink
+#property indicator_width11 5
+
+
+//=== 入力パラメータ ==============================================
+enum ENUM_WMATYPE
+{
+   WT_SMA,        // SMA
+   WT_WMA,        // WMA
+   WT_SMMA,       // SMMA(Smoothed)
+   WT_TMA,        // TMA(Triangular)
+   WT_VWMA,       // VWMA(Volume Weighted)
+   WT_KAMA,       // KAMA(Kaufman Adaptive)
+   WT_VIDYA,      // VIDYA(Variable Index Dynamic)
+   WT_FRAMA,      // FRAMA(Fractal Adaptive)
+   WT_ATR_ADAPT,  // ATR Adaptive(ATR水準でα可変)
+   WT_ATR_TREND,  // ATR Trend(ATR傾きでα可変)
+   WT_EMA,        // EMA(指数平滑)
+   WT_HMA,        // HMA(Hull)
+   WT_DEMA,       // DEMA(Double EMA)
+   WT_ZLEMA,      // ZLEMA(Zero Lag EMA)
+   WT_MAMA,       // MAMA(MESA Adaptive)
+   WT_LSMA,       // LSMA(Least Squares)
+   WT_VWAP        // VWAP(直近N本ローリング)
+};
+input string InpVersionInfo = "V6.0 / 2026-06-15 方向MA=KAMA20・色ヒステリシス・表示平滑"; // ★バージョン(最新確認用・変更不要)
+input ENUM_WMATYPE InpWmaType   = WT_FRAMA;// ★Ver8: 方向判定MAの種類(FRAMAで統一。M5/M15とも同じ)
+input int          InpWmaPeriod = 8;       // ★Ver8: 方向判定MAの期間(FRAMA8)
+input int          InpLineSmooth = 5;      // InpLineSmooth: 表示線の平滑(本数。1=生KAMA。ロジックは生のまま線だけ滑らか)
+//--- 追加フィルター(初期は全部OFF=ベースMAだけでシグナル。1つずつONで検証) ---
+input bool   InpFilM1Spike     = false;// ①M1スパイク要求(だまし対策・タイミング)※基本版はOFF
+input bool   InpFilSqueeze     = false;// ②圧縮中は弾く(スクイーズのダマシ対策)
+input bool   InpFilOvershoot   = false;// ③オーバーシュートを弾く(急変飛び乗り対策)
+input bool   InpRequireEmaColit = false;// ④方向MAとEMA同時点灯
+input bool   InpAlsoTakePullback = true; // ⑤調整波も狙う(OFF=平均足と方向一致時だけ入る=調整波回避)
+input double InpAtrFastA      = 0.6;  // ATR適応:速い時のα(0〜1・大きいほど速い)
+input double InpAtrSlowA      = 0.05; // ATR適応:遅い時のα(0〜1・小さいほど滑らか)
+input int    InpAtrRefPeriod  = 50;   // ATR適応:ATR平均/変化率の参照期間
+input bool   InpHighVolFaster = true; // ATR Adaptive:高ボラで速くするか(既定false=高ボラで遅く)
+input double InpMamaFast      = 0.5;  // MAMA:FastLimit(速さ上限)
+input double InpMamaSlow      = 0.05; // MAMA:SlowLimit(速さ下限)
+input int    InpCooldownBars  = 5;    // ★決済後この本数は新規エントリーを出さない(調整波回避・EAから移管)。グレー出現で即解除
+//--- ★A案:実ポジ同期(ライブ足のみ)。EAがSL等で先に手仕舞い済みなら仮想保有を解除し再武装可能にする
+input bool   InpSyncEAPos     = true;     // ★ライブ足で実ポジと同期(EAがノーポジなら指標の保有も解除=コード20の空転防止)
+input long   InpEAMagic       = 20260606; // ★同期対象EAのマジックナンバー(EA側と一致させる)
+input ENUM_WMATYPE InpEmaType   = WT_KAMA; // (旧・引き金/スパイク線。現在は表示をM15に転用したため未使用)
+input int    InpEmaPeriod    = 10;    // (旧・未使用)
+//--- ★Ver8: 15分足オーバーレイ(プロット1=NORM/2=SPIKEに表示)。色は色タブで設定。
+input ENUM_WMATYPE InpM15Type   = WT_FRAMA; // ★15分足MAの種類(既定FRAMA)
+input int    InpM15Period    = 8;     // ★15分足MAの期間(既定8)
+//--- ★Ver8: 各プロットの線幅(0=非表示)。色タブの代わりに入力で太さ調整。
+input int    InpW_M15Norm    = 5;     // ★15分足 NORM(M15グレー時)の幅(0〜10、0=非表示)
+input int    InpW_M15Up       = 5;    // ★15分足 UP(M15上昇)の幅(0〜10、0=非表示)
+input int    InpW_M15Down     = 5;    // ★15分足 DOWN(M15下降)の幅(0〜10、0=非表示)
+input int    InpW_MaUp        = 5;    // MA_UP   の幅(0〜5、0=非表示)
+input int    InpW_MaDown      = 5;    // MA_DOWN の幅(0〜5、0=非表示)
+input int    InpW_MaFlat      = 5;    // MA_FLAT の幅(0〜5、0=非表示)
+input int    InpW_Sma20       = 1;    // SMA20_CENTER の幅(0〜5、0=非表示)
+input int    InpSmaPeriod    = 10;    // SMA期間(決済の基準線=SMA10)
+input int    InpSma2ndPeriod = 1;     // ★二重平滑の期間(1=平滑なし → 素のSMA10)
+
+//--- 決済用 平均足(Smoothed Heikin Ashi)。決済は平均足が逆色に転換した時。
+input int            InpHaPrePeriod  = 5;        // ★Ver7: 決済用平均足:前平滑化の期間(SMOOTHED)
+input ENUM_MA_METHOD InpHaPreMethod  = MODE_SMMA;// 決済用平均足:前平滑化の方式(Smoothed)
+input int            InpHaPostPeriod = 5;        // ★Ver7: 決済用平均足:後平滑化の期間(SMOOTHED)
+input ENUM_MA_METHOD InpHaPostMethod = MODE_SMMA;// ★Ver7: 決済用平均足:後平滑化の方式(Smoothed)
+input bool   InpHaPriorityExit = false;// ★Ver8 土台: 平均足を決済に使うか(ON=旧式・色反転まで耐える / OFF=方向MA反転で即決済)。既定OFF
+input int    InpExitGrayConfirmBars = 2; // ★Ver8: MA決済はグレーがこの本数“続いたら”実行(1本だけのチラつき=中間色は無視)。1=即時
+input double InpSpikeTh       = 2.0;  // M5でEMA10が点灯(マゼンタ)する収束度
+input double InpWmaSlopeTh    = 0.10; // InpWmaSlopeTh: 点灯しきい値(上げるとグレー増)
+input double InpWmaStickyMult = 0.3;  // ★Ver8: 色の粘り(消灯=点灯×本値。小=途切れにくい=表示も判定も連続化)
+input int    InpColorConfirmBars = 2; // InpColorConfirmBars: 色の確認本数(2=直前の確定足も同色で点灯してないと入らない=ライブ足の一瞬点灯=flashを除去。1=即エントリー)
+input double InpM1SpikeTh      = 2.0; // M1スパイクの収束本数
+input int    InpM1Bars         = 30000;// 取得するM1本数(フィルター①ON時)
+input double InpBBMult          = 2.0; // スクイーズ判定用 ボリンジャー偏差(フィルター②ON時)
+input double InpKCMult          = 1.5; // ⑦圧縮ケルトナー幅
+input bool   InpLightFromM1    = true;// M1スパイクの足もEMA10をマゼンタにする(点灯と矢印を一致)
+input bool   InpAlert          = true; // エントリー/終了でアラート
+
+//=== 背景色(backend_1統合・方向判定MAの色で塗る) ================
+//   背景＝wmaDir(方向判定MAの傾き)。線色・エントリー許可方向と完全一致。
+//   グレー=レンジ=エントリー禁止、色が点いた方向に入る(ルール③の見える化)。
+input bool   InpShowBG     = true;          // 背景色を表示する
+input color  InpColorBull  = clrGray;        // ★上昇の背景色 (Gray)
+input color  InpColorRange = C'34,34,34';     // ★中立(グレー)の背景色 (#222222)
+input color  InpColorBear  = C'34,116,128';   // ★下降の背景色 (RGB 34,116,128)
+input bool   InpShowInfoLabel = false;        // ★チャートにファイル名/バージョンのラベルを出すか(既定OFF=非表示)
+input int    InpColorHoldBars = 2;            // ★Ver7③ 表示の色保持(背景/方向MA線):新色がこの本数続くまで前色を保持(1=保持なし)。表示のみ・エントリー不変
+input int    InpGrayHoldBars = 3;             // ★Ver7③ トレンド内の一時グレーをこの本数まで前色で橋渡し(背景の黒帯を埋める)。本物のレンジ(この本数以上の連続グレー)はグレー表示。表示のみ
+input int    InpBgLookback = 800;           // 背景を塗る本数(直近)
+
+
+//=== バッファ ====================================================
+double BufEmaNorm[];
+double BufEmaSpike[];
+double BufWmaUp[];
+double BufWmaDown[];
+double BufWmaFlat[];
+double BufSma20[];
+double BufSma20Col[];    // SMA20の5段階カラーインデックス
+double BufBuy[];
+double BufSell[];
+double BufExit[];
+double BufOvershoot[];   // オーバーシュート(急変・行き過ぎ)印
+double BufReason[];      // ★エントリー理由コード(描画なし・EAがCopyBuffer(12)で読む)
+double BufM15Down[];     // ★Ver8: 15分足 DOWN(M15下降)のオーバーレイ線(プロット11=buf11)
+                         //   1=BUY発生 2=SELL発生 10=グレー 11=M1無し 12=圧縮
+                         //   13=オーバーシュート 14=再エントリーロック 20=保有中 30=EXIT
+
+//=== アラート重複防止 ============================================
+datetime g_lastAlertTime = 0;
+
+int hEMA, hSMA, hWMA, hATR;          // M5(チャート足)
+int hM15, hAtrM15;                    // ★Ver8: 15分足オーバーレイ(FRAMA8)+M15 ATR
+int hKAMA=-1, hVIDYA=-1, hFRAMA=-1;  // 適応型MA(標準関数)
+int hEMA1, hSMA1, hATR1;             // M1
+
+
+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| 指定した種類・期間のMAハンドルを返す(引き金/スパイク線用)       |
+//|   標準関数で出せる型(EMA/SMA/WMA/SMMA/KAMA/VIDYA/FRAMA)に対応。   |
+//|   TMA/VWMA/ATR系を選んだ時は当面EMAで代替(必要なら後日対応)。    |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| 1本の移動平均値(配列srcのpos位置・period本・方式)。平均足平滑用。 |
+//|   配列は時系列昇順(0=古い)。period<=1 で平滑なし。               |
+//+------------------------------------------------------------------+
+double MAValue(const double &src[], int pos, int period, ENUM_MA_METHOD method, int total)
+{
+   if(period <= 1)      return src[pos];
+   if(pos < period-1)   return src[pos];
+   double res = src[pos];
+   switch(method)
+   {
+      case MODE_SMA:
+      {
+         double sum=0; for(int k=0;k<period;k++) sum+=src[pos-k];
+         res = sum/period; break;
+      }
+      case MODE_EMA:
+      {
+         double pr=2.0/(period+1.0); int st=MathMax(0,pos-period*3);
+         double e=src[st]; for(int k=st+1;k<=pos;k++) e=src[k]*pr+e*(1.0-pr);
+         res=e; break;
+      }
+      case MODE_SMMA:
+      {
+         int st=MathMax(0,pos-period*3); double sm=src[st];
+         for(int k=st+1;k<=pos;k++) sm=(sm*(period-1)+src[k])/period;
+         res=sm; break;
+      }
+      case MODE_LWMA:
+      {
+         double sum=0,ws=0; for(int k=0;k<period;k++){int w=period-k; sum+=src[pos-k]*w; ws+=w;}
+         res=(ws>0)?sum/ws:src[pos]; break;
+      }
+      default: res=src[pos];
+   }
+   return res;
+}
+
+//+------------------------------------------------------------------+
+int MakeMA(ENUM_WMATYPE t, int period, ENUM_TIMEFRAMES tf)
+{
+   switch(t)
+   {
+      case WT_SMA:   return iMA   (_Symbol, tf, period, 0, MODE_SMA,  PRICE_CLOSE);
+      case WT_WMA:   return iMA   (_Symbol, tf, period, 0, MODE_LWMA, PRICE_CLOSE);
+      case WT_SMMA:  return iMA   (_Symbol, tf, period, 0, MODE_SMMA, PRICE_CLOSE);
+      case WT_KAMA:  return iAMA  (_Symbol, tf, period, 2, 30, 0, PRICE_CLOSE);
+      case WT_VIDYA: return iVIDyA(_Symbol, tf, period, 12, 0, PRICE_CLOSE);
+      case WT_FRAMA: return iFrAMA(_Symbol, tf, period, 0, PRICE_CLOSE);
+      case WT_EMA:   return iMA   (_Symbol, tf, period, 0, MODE_EMA,  PRICE_CLOSE);
+      default:       return iMA   (_Symbol, tf, period, 0, MODE_EMA,  PRICE_CLOSE); // TMA/VWMA/ATR系は当面EMA代替
+   }
+}
+
+//+------------------------------------------------------------------+
+//| 追加MA(HMA/DEMA/ZLEMA/MAMA/LSMA/VWAP)の計算。配列は非時系列(0=古)|
+//|   ※追加6種の計算式(backend_1と完全一致)。     |
+//+------------------------------------------------------------------+
+double LWMAat(const double &src[], const int i, int n)
+{
+   if(n<1) n=1;
+   if(i < n-1) n = i+1;
+   double s=0.0, w=0.0;
+   for(int k=0;k<n;k++){ int ww=n-k; s+=src[i-k]*ww; w+=ww; }
+   return (w>0.0)? s/w : src[i];
+}
+void Calc_HMA(double &out[], const double &close[], const int period, const int rt)
+{
+   ArrayResize(out, rt);
+   int half=MathMax(1, period/2);
+   int sq  =MathMax(1, (int)MathRound(MathSqrt((double)period)));
+   double raw[]; ArrayResize(raw, rt);
+   for(int i=0;i<rt;i++){ double w1=LWMAat(close,i,half), w2=LWMAat(close,i,period); raw[i]=2.0*w1-w2; }
+   for(int i=0;i<rt;i++) out[i]=LWMAat(raw,i,sq);
+}
+void Calc_DEMA(double &out[], const double &close[], const int period, const int rt)
+{
+   ArrayResize(out, rt);
+   double pr=2.0/(period+1.0);
+   double e1[],e2[]; ArrayResize(e1,rt); ArrayResize(e2,rt);
+   for(int i=0;i<rt;i++) e1[i]=(i==0)?close[i]:close[i]*pr+e1[i-1]*(1.0-pr);
+   for(int i=0;i<rt;i++) e2[i]=(i==0)?e1[i]   :e1[i] *pr+e2[i-1]*(1.0-pr);
+   for(int i=0;i<rt;i++) out[i]=2.0*e1[i]-e2[i];
+}
+void Calc_ZLEMA(double &out[], const double &close[], const int period, const int rt)
+{
+   ArrayResize(out, rt);
+   int lag=(period-1)/2;
+   double pr=2.0/(period+1.0);
+   double adj[]; ArrayResize(adj,rt);
+   for(int i=0;i<rt;i++) adj[i]=(i>=lag)? 2.0*close[i]-close[i-lag] : close[i];
+   for(int i=0;i<rt;i++) out[i]=(i==0)?adj[i]:adj[i]*pr+out[i-1]*(1.0-pr);
+}
+void Calc_LSMA(double &out[], const double &close[], const int period, const int rt)
+{
+   ArrayResize(out, rt);
+   int n=MathMax(2, period);
+   for(int i=0;i<rt;i++)
+   {
+      int m=(i+1<n)? i+1 : n;
+      if(m<2){ out[i]=close[i]; continue; }
+      double sx=0,sy=0,sxx=0,sxy=0;
+      for(int k=0;k<m;k++){ double x=(double)k; double y=close[i-(m-1-k)]; sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; }
+      double den=m*sxx - sx*sx;
+      if(den==0){ out[i]=close[i]; continue; }
+      double a=(m*sxy - sx*sy)/den;
+      double b=(sy - a*sx)/m;
+      out[i]=a*(m-1)+b;   // 回帰直線の最新点の値
+   }
+}
+void Calc_VWAP(double &out[], const double &high[], const double &low[], const double &close[], const long &tvol[], const int period, const int rt)
+{
+   // 直近period本のローリングVWAP。典型価格(H+L+C)/3 × 出来高(tick)で加重。
+   ArrayResize(out, rt);
+   for(int i=0;i<rt;i++)
+   {
+      int m=(i+1<period)? i+1 : period;
+      double sp=0,sv=0;
+      for(int k=0;k<m;k++){ double tp=(high[i-k]+low[i-k]+close[i-k])/3.0; double v=(double)tvol[i-k]; sp+=tp*v; sv+=v; }
+      out[i]=(sv>0)? sp/sv : close[i];
+   }
+}
+void Calc_MAMA(double &out[], const double &close[], const double fastLimit, const double slowLimit, const int rt)
+{
+   // John Ehlers の MESA Adaptive MA (close基準)。出力はMAMA線。
+   ArrayResize(out, rt);
+   double sm[],dt[],i1[],q1[],ji[],jq[],i2[],q2[],re[],im[],pd[],ph[],mama[];
+   ArrayResize(sm,rt);ArrayResize(dt,rt);ArrayResize(i1,rt);ArrayResize(q1,rt);ArrayResize(ji,rt);
+   ArrayResize(jq,rt);ArrayResize(i2,rt);ArrayResize(q2,rt);ArrayResize(re,rt);ArrayResize(im,rt);
+   ArrayResize(pd,rt);ArrayResize(ph,rt);ArrayResize(mama,rt);
+   ArrayInitialize(sm,0);ArrayInitialize(dt,0);ArrayInitialize(i1,0);ArrayInitialize(q1,0);ArrayInitialize(ji,0);
+   ArrayInitialize(jq,0);ArrayInitialize(i2,0);ArrayInitialize(q2,0);ArrayInitialize(re,0);ArrayInitialize(im,0);
+   ArrayInitialize(pd,0);ArrayInitialize(ph,0);ArrayInitialize(mama,0);
+   double r2d=180.0/M_PI;
+   for(int i=0;i<rt;i++)
+   {
+      if(i<6){ mama[i]=close[i]; pd[i]=0; ph[i]=0; continue; }
+      double adj=0.075*pd[i-1]+0.54;
+      sm[i]=(4.0*close[i]+3.0*close[i-1]+2.0*close[i-2]+close[i-3])/10.0;
+      dt[i]=(0.0962*sm[i]+0.5769*sm[i-2]-0.5769*sm[i-4]-0.0962*sm[i-6])*adj;
+      q1[i]=(0.0962*dt[i]+0.5769*dt[i-2]-0.5769*dt[i-4]-0.0962*dt[i-6])*adj;
+      i1[i]=dt[i-3];
+      ji[i]=(0.0962*i1[i]+0.5769*i1[i-2]-0.5769*i1[i-4]-0.0962*i1[i-6])*adj;
+      jq[i]=(0.0962*q1[i]+0.5769*q1[i-2]-0.5769*q1[i-4]-0.0962*q1[i-6])*adj;
+      double i2v=i1[i]-jq[i], q2v=q1[i]+ji[i];
+      i2[i]=0.2*i2v+0.8*i2[i-1];
+      q2[i]=0.2*q2v+0.8*q2[i-1];
+      double rev=i2[i]*i2[i-1]+q2[i]*q2[i-1];
+      double imv=i2[i]*q2[i-1]-q2[i]*i2[i-1];
+      re[i]=0.2*rev+0.8*re[i-1];
+      im[i]=0.2*imv+0.8*im[i-1];
+      double period=pd[i-1];
+      if(im[i]!=0.0 && re[i]!=0.0) period=360.0/(MathArctan(im[i]/re[i])*r2d);
+      if(period>1.5*pd[i-1]) period=1.5*pd[i-1];
+      if(period<0.67*pd[i-1]) period=0.67*pd[i-1];
+      if(period<6.0)  period=6.0;
+      if(period>50.0) period=50.0;
+      pd[i]=0.2*period+0.8*pd[i-1];
+      double phase=ph[i-1];
+      if(i1[i]!=0.0) phase=MathArctan(q1[i]/i1[i])*r2d;
+      ph[i]=phase;
+      double dph=ph[i-1]-ph[i];
+      if(dph<1.0) dph=1.0;
+      double alpha=fastLimit/dph;
+      if(alpha<slowLimit) alpha=slowLimit;
+      if(alpha>fastLimit) alpha=fastLimit;
+      mama[i]=alpha*close[i]+(1.0-alpha)*mama[i-1];
+   }
+   for(int i=0;i<rt;i++) out[i]=mama[i];
+}
+
+//+------------------------------------------------------------------+
+//| 背景色(backend_1統合)用                                          |
+//+------------------------------------------------------------------+
+const string PREFIX_BG = "BG_";
+const double BG_TOP = 10000000.0;   // 背景四角の上端(全銘柄をほぼカバー)
+const double BG_BOT = 0.0;
+void DrawBG(const datetime t1,const datetime t2,const color c)
+{
+   string obj=PREFIX_BG+IntegerToString((int)t1);
+   if(ObjectFind(0,obj)<0)
+   {
+      ObjectCreate(0,obj,OBJ_RECTANGLE,0,t1,BG_TOP,t2,BG_BOT);
+      ObjectSetInteger(0,obj,OBJPROP_BACK,true);     // ローソクの後ろ
+      ObjectSetInteger(0,obj,OBJPROP_FILL,true);     // 塗りつぶし
+      ObjectSetInteger(0,obj,OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0,obj,OBJPROP_HIDDEN,true);
+   }
+   ObjectSetInteger(0,obj,OBJPROP_COLOR,c);          // 色は毎回更新
+}
+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| ★Ver8: プロットの線幅を適用。0以下=非表示(DRAW_NONE)。           |
+//+------------------------------------------------------------------+
+void ApplyPlotWidth(int plot, int w, int drawType)
+{
+   if(w <= 0)
+      PlotIndexSetInteger(plot, PLOT_DRAW_TYPE, DRAW_NONE);   // 非表示
+   else
+   {
+      PlotIndexSetInteger(plot, PLOT_DRAW_TYPE, drawType);
+      PlotIndexSetInteger(plot, PLOT_LINE_WIDTH, w);
+   }
+}
+
+int OnInit()
+{
+   SetIndexBuffer(0, BufEmaNorm,  INDICATOR_DATA);
+   SetIndexBuffer(1, BufEmaSpike, INDICATOR_DATA);
+   SetIndexBuffer(2, BufWmaUp,    INDICATOR_DATA);
+   SetIndexBuffer(3, BufWmaDown,  INDICATOR_DATA);
+   SetIndexBuffer(4, BufWmaFlat,  INDICATOR_DATA);
+   SetIndexBuffer(5, BufSma20,    INDICATOR_DATA);
+   SetIndexBuffer(6, BufSma20Col, INDICATOR_COLOR_INDEX);
+   SetIndexBuffer(7, BufBuy,      INDICATOR_DATA);
+   SetIndexBuffer(8, BufSell,     INDICATOR_DATA);
+   SetIndexBuffer(9, BufExit,     INDICATOR_DATA);
+   SetIndexBuffer(10, BufOvershoot, INDICATOR_DATA);
+   SetIndexBuffer(11, BufM15Down,  INDICATOR_DATA);        // ★15分足 DOWN(プロット11)
+   SetIndexBuffer(12, BufReason,  INDICATOR_CALCULATIONS); // ★描画しない・EA読み取り専用(番号が11→12に移動)
+
+   PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(2, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(5, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   // SMA20(plot5)を5段階カラーに
+   PlotIndexSetInteger(5, PLOT_COLOR_INDEXES, 5);
+   PlotIndexSetInteger(5, PLOT_LINE_COLOR, 0, clrAqua);          // 強い上昇
+   PlotIndexSetInteger(5, PLOT_LINE_COLOR, 1, clrLightSkyBlue);  // 上昇
+   PlotIndexSetInteger(5, PLOT_LINE_COLOR, 2, clrGray);          // レンジ
+   PlotIndexSetInteger(5, PLOT_LINE_COLOR, 3, clrPlum);          // 下降(薄マゼンタ)
+   PlotIndexSetInteger(5, PLOT_LINE_COLOR, 4, clrMagenta);       // 強い下降
+   PlotIndexSetInteger(6, PLOT_ARROW, 233);
+   PlotIndexSetInteger(7, PLOT_ARROW, 234);
+   PlotIndexSetInteger(8, PLOT_ARROW, 251);            // EXIT(×印)
+   PlotIndexSetInteger(8, PLOT_LINE_WIDTH, 5);         // 決済マークを大きく
+   PlotIndexSetInteger(9, PLOT_ARROW, 251);            // オーバーシュート印
+   PlotIndexSetInteger(9, PLOT_LINE_COLOR, clrMagenta);
+   PlotIndexSetInteger(9, PLOT_LINE_WIDTH, 2);
+   PlotIndexSetDouble(6, PLOT_EMPTY_VALUE, 0.0);
+   PlotIndexSetDouble(7, PLOT_EMPTY_VALUE, 0.0);
+   PlotIndexSetDouble(8, PLOT_EMPTY_VALUE, 0.0);
+   PlotIndexSetDouble(9, PLOT_EMPTY_VALUE, 0.0);
+
+   // ★Ver8: プロット幅を入力から適用(0=非表示=DRAW_NONE)。ラベルもM15用に。
+   ApplyPlotWidth(0, InpW_M15Norm,  DRAW_LINE);        // 15分足 NORM
+   ApplyPlotWidth(1, InpW_M15Up,    DRAW_LINE);        // 15分足 UP
+   ApplyPlotWidth(2, InpW_MaUp,     DRAW_LINE);        // MA_UP
+   ApplyPlotWidth(3, InpW_MaDown,   DRAW_LINE);        // MA_DOWN
+   ApplyPlotWidth(4, InpW_MaFlat,   DRAW_LINE);        // MA_FLAT
+   ApplyPlotWidth(5, InpW_Sma20,    DRAW_COLOR_LINE);  // SMA20_CENTER
+   ApplyPlotWidth(10, InpW_M15Down, DRAW_LINE);        // 15分足 DOWN
+   PlotIndexSetString(0,  PLOT_LABEL, "15分足 NORM");
+   PlotIndexSetString(1,  PLOT_LABEL, "15分足 UP");
+   PlotIndexSetString(10, PLOT_LABEL, "15分足 DOWN");
+   PlotIndexSetDouble(10, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+
+   // チャート足(M5想定)
+   hEMA = MakeMA(InpEmaType, InpEmaPeriod, _Period);   // 引き金/スパイク線(種類選択)
+   hSMA = iMA(_Symbol, _Period, InpSmaPeriod, 0, MODE_SMA,  PRICE_CLOSE);
+   // WMA(方向判定線)は種類選択。SMA/WMA/SMMAはiMA、TMA/VWMAは自前計算。
+   ENUM_MA_METHOD wmode = MODE_LWMA;
+   if(InpWmaType==WT_SMA)       wmode = MODE_SMA;
+   else if(InpWmaType==WT_WMA)  wmode = MODE_LWMA;
+   else if(InpWmaType==WT_SMMA) wmode = MODE_SMMA;
+   else if(InpWmaType==WT_EMA)  wmode = MODE_EMA;  // ★修正: 従来は下のelseでSMAになっていた
+   else                         wmode = MODE_SMA;  // TMA/VWMA/KAMA/VIDYA/FRAMA/ATRは仮(後で上書き計算)
+   hWMA = iMA(_Symbol, _Period, InpWmaPeriod, 0, wmode, PRICE_CLOSE);
+   // 適応型MA(標準関数)。選択時のみ実際に使う
+   if(InpWmaType==WT_KAMA)
+      hKAMA = iAMA(_Symbol, _Period, InpWmaPeriod, 2, 30, 0, PRICE_CLOSE);
+   if(InpWmaType==WT_VIDYA)
+      hVIDYA = iVIDyA(_Symbol, _Period, 9, 12, 0, PRICE_CLOSE);
+   if(InpWmaType==WT_FRAMA)
+      hFRAMA = iFrAMA(_Symbol, _Period, InpWmaPeriod, 0, PRICE_CLOSE);
+   hATR = iATR(_Symbol, _Period, 14);
+   // M1(引き金用)
+   hEMA1 = MakeMA(InpEmaType, InpEmaPeriod, PERIOD_M1); // M1引き金線(種類選択)
+   hSMA1 = iMA(_Symbol, PERIOD_M1, InpSmaPeriod, 0, MODE_SMA, PRICE_CLOSE);
+   hATR1 = iATR(_Symbol, PERIOD_M1, 14);
+   // ★Ver8: 15分足オーバーレイ用(種類/期間は入力。既定FRAMA8)
+   hM15    = MakeMA(InpM15Type, InpM15Period, PERIOD_M15);
+   hAtrM15 = iATR(_Symbol, PERIOD_M15, 14);
+
+   if(hEMA==INVALID_HANDLE || hSMA==INVALID_HANDLE || hWMA==INVALID_HANDLE ||
+      hATR==INVALID_HANDLE || hEMA1==INVALID_HANDLE || hSMA1==INVALID_HANDLE ||
+      hATR1==INVALID_HANDLE)
+   {
+      Print("ハンドル作成失敗");
+      return(INIT_FAILED);
+   }
+   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu_indicator_7");
+
+   // チャート上の情報ラベル(ファイル名/バージョン)。既定OFF=他表示と重なるため非表示。
+   string vname = "DK2_version_label";
+   if(InpShowInfoLabel)
+   {
+      if(ObjectFind(0, vname) < 0)
+         ObjectCreate(0, vname, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, vname, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, vname, OBJPROP_XDISTANCE, 5);
+      ObjectSetInteger(0, vname, OBJPROP_YDISTANCE, 20);
+      ObjectSetInteger(0, vname, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, vname, OBJPROP_FONTSIZE, 9);
+      ObjectSetString (0, vname, OBJPROP_TEXT,
+         StringFormat("DokaKotsu indicator_7  %s  (build %s)", DK_VERSION, DK_BUILD));
+      ObjectSetInteger(0, vname, OBJPROP_SELECTABLE, false);
+   }
+   else
+   {
+      ObjectDelete(0, vname);   // 既存ラベルがあれば消す
+   }
+
+   // ★背景(BG_)の掃除は「起動時」に行う(終了時ではない)。
+   //   理由: EAの iCustom 解放・再コンパイルで OnDeinit が走っても背景を消さないため。
+   //   背景はインジの責務。起動時に古い物を消し、直後の OnCalculate で塗り直す。
+   {
+      int _t = ObjectsTotal(0, -1, -1);
+      for(int _i = _t - 1; _i >= 0; _i--)
+      {
+         string _nm = ObjectName(0, _i, -1, -1);
+         if(StringFind(_nm, PREFIX_BG) == 0) ObjectDelete(0, _nm);
+      }
+   }
+
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   // ★背景(BG_)とバージョンラベルは終了時に消さない。
+   //   EAの iCustom 解放/再コンパイルでこの OnDeinit が走っても背景を残すため
+   //   (背景がEAに連動して消える問題の排除)。古い背景の掃除は OnInit 側で行う。
+}
+
+//+------------------------------------------------------------------+
+//| ★A案:対象EA(InpEAMagic)の実ポジ保有有無を返す                    |
+//|   PositionsTotalを走査し、_Symbol かつ 指定マジックがあれば true。|
+//|   ライブ足の同期判定にのみ使用(過去足は純シミュレーション)。     |
+//+------------------------------------------------------------------+
+bool EAHasPosition()
+{
+   int total = PositionsTotal();
+   for(int k=0; k<total; k++)
+   {
+      ulong tk = PositionGetTicket(k);   // インデックスで選択しチケット取得
+      if(tk==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)==_Symbol &&
+         (long)PositionGetInteger(POSITION_MAGIC)==InpEAMagic)
+         return true;
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+{
+   int need = MathMax(MathMax(InpEmaPeriod, InpSmaPeriod), InpWmaPeriod) + 5;
+   if(rates_total < need + 2) return(0);
+
+   ArraySetAsSeries(time,  false);
+   ArraySetAsSeries(high,  false);
+   ArraySetAsSeries(low,   false);
+   ArraySetAsSeries(close, false);
+
+   // --- チャート足(M5)の値 ---
+   double ema[], sma[], wma[], atr[];
+   if(CopyBuffer(hEMA,0,0,rates_total,ema)<=0) return(prev_calculated);
+   if(CopyBuffer(hSMA,0,0,rates_total,sma)<=0) return(prev_calculated);
+   if(CopyBuffer(hWMA,0,0,rates_total,wma)<=0) return(prev_calculated);
+   if(CopyBuffer(hATR,0,0,rates_total,atr)<=0) return(prev_calculated);
+   ArraySetAsSeries(ema,false); ArraySetAsSeries(sma,false);
+
+   // SMA20を二重平滑(さらに期間Nで平均)して滑らかにする。
+   //   カクつき軽減。グレー判定のタイミングも滑らかになる。
+   double sma2[]; ArrayResize(sma2, rates_total);
+   int smN = MathMax(1, InpSma2ndPeriod);   // 二次平滑の期間(入力で調整。1=平滑なし)
+   for(int i=0;i<rates_total;i++)
+   {
+      if(i < smN-1){ sma2[i]=sma[i]; continue; }
+      double s=0; for(int k=0;k<smN;k++) s+=sma[i-k];
+      sma2[i]=s/smN;
+   }
+   ArraySetAsSeries(wma,false); ArraySetAsSeries(atr,false);
+
+   // ★Ver8: 15分足オーバーレイ(FRAMA8)。M15のMA値・ATR・時刻を取得し、各M15足の方向を前計算。
+   double m15ma[], m15atr[]; datetime m15time[];
+   int m15n = 0;
+   {
+      int want = MathMin(Bars(_Symbol, PERIOD_M15), rates_total);
+      if(want > 3 && hM15!=INVALID_HANDLE && hAtrM15!=INVALID_HANDLE)
+      {
+         ArraySetAsSeries(m15ma,false); ArraySetAsSeries(m15atr,false); ArraySetAsSeries(m15time,false);
+         int g1 = CopyBuffer(hM15,   0, 0, want, m15ma);
+         int g2 = CopyBuffer(hAtrM15,0, 0, want, m15atr);
+         int g3 = CopyTime  (_Symbol, PERIOD_M15, 0, want, m15time);
+         m15n = MathMin(MathMin(g1, g2), g3);
+         if(m15n < 0) m15n = 0;
+      }
+   }
+   int m15dir[]; ArrayResize(m15dir, MathMax(m15n,1));
+   for(int k=0;k<m15n;k++)
+   {
+      if(k<1 || m15atr[k]<=0.0) { m15dir[k]=0; continue; }
+      double sl = (m15ma[k]-m15ma[k-1]) / m15atr[k];   // ATR正規化したM15傾き
+      m15dir[k] = (sl > InpWmaSlopeTh) ? 1 : (sl < -InpWmaSlopeTh ? -1 : 0);
+   }
+
+   // ── 決済用 平均足(Smoothed Heikin Ashi)の色を前計算 ──
+   //   haColor[i]: 0=陽線(上昇) / 1=陰線(下降)。決済はこの色の転換で行う。
+   double prO[],prH[],prL[],prC[],hO[],hH[],hL[],hC[];
+   ArrayResize(prO,rates_total); ArrayResize(prH,rates_total);
+   ArrayResize(prL,rates_total); ArrayResize(prC,rates_total);
+   ArrayResize(hO,rates_total);  ArrayResize(hH,rates_total);
+   ArrayResize(hL,rates_total);  ArrayResize(hC,rates_total);
+   int haColor[]; ArrayResize(haColor, rates_total);
+   for(int i=0;i<rates_total;i++)   // ①前平滑化
+   {
+      prO[i]=MAValue(open ,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
+      prH[i]=MAValue(high ,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
+      prL[i]=MAValue(low  ,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
+      prC[i]=MAValue(close,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
+   }
+   for(int i=0;i<rates_total;i++)   // ②平均足の生値
+   {
+      double hac=(prO[i]+prH[i]+prL[i]+prC[i])/4.0;
+      double hao=(i==0)?(prO[i]+prC[i])/2.0:(hO[i-1]+hC[i-1])/2.0;
+      hO[i]=hao; hC[i]=hac;
+      hH[i]=MathMax(prH[i],MathMax(hao,hac));
+      hL[i]=MathMin(prL[i],MathMin(hao,hac));
+   }
+   for(int i=0;i<rates_total;i++)   // ③後平滑化 → 色
+   {
+      double o=MAValue(hO,i,InpHaPostPeriod,InpHaPostMethod,rates_total);
+      double c=MAValue(hC,i,InpHaPostPeriod,InpHaPostMethod,rates_total);
+      haColor[i]=(c>=o)?0:1;
+   }
+
+   // TMA/VWMA は iMA に無いので自前計算で wma[] を上書き
+   if(InpWmaType==WT_TMA)
+   {
+      // 三角移動平均 = SMAを2回かける
+      int h=(InpWmaPeriod+1)/2;
+      double tmp[]; ArrayResize(tmp,rates_total);
+      for(int i=0;i<rates_total;i++){ double s=0;int c=0; for(int k=0;k<h&&i-k>=0;k++){s+=close[i-k];c++;} tmp[i]=(c>0)?s/c:close[i]; }
+      for(int i=0;i<rates_total;i++){ double s=0;int c=0; for(int k=0;k<h&&i-k>=0;k++){s+=tmp[i-k];c++;} wma[i]=(c>0)?s/c:close[i]; }
+   }
+   else if(InpWmaType==WT_VWMA)
+   {
+      // 出来高加重移動平均
+      for(int i=0;i<rates_total;i++)
+      {
+         if(i<InpWmaPeriod-1){ wma[i]=close[i]; continue; }
+         double sp=0,sv=0;
+         for(int k=0;k<InpWmaPeriod;k++){ double v=(double)tick_volume[i-k]; sp+=close[i-k]*v; sv+=v; }
+         wma[i]=(sv>0)?sp/sv:close[i];
+      }
+   }
+   else if(InpWmaType==WT_KAMA && hKAMA!=INVALID_HANDLE && hKAMA>=0)
+   {
+      double buf[];
+      if(CopyBuffer(hKAMA,0,0,rates_total,buf)>0)
+      { ArraySetAsSeries(buf,false); for(int i=0;i<rates_total;i++) wma[i]=buf[i]; }
+   }
+   else if(InpWmaType==WT_VIDYA && hVIDYA!=INVALID_HANDLE && hVIDYA>=0)
+   {
+      double buf[];
+      if(CopyBuffer(hVIDYA,0,0,rates_total,buf)>0)
+      { ArraySetAsSeries(buf,false); for(int i=0;i<rates_total;i++) wma[i]=buf[i]; }
+   }
+   else if(InpWmaType==WT_FRAMA && hFRAMA!=INVALID_HANDLE && hFRAMA>=0)
+   {
+      double buf[];
+      if(CopyBuffer(hFRAMA,0,0,rates_total,buf)>0)
+      { ArraySetAsSeries(buf,false); for(int i=0;i<rates_total;i++) wma[i]=buf[i]; }
+   }
+   else if(InpWmaType==WT_ATR_ADAPT)
+   {
+      // ATR Adaptive: ATRの「水準」(ATR / ATR平均)でαを変える適応EMA
+      //   既定(InpHighVolFaster=false): 高ボラで遅く(なめらか)
+      //   true: 高ボラで速く
+      for(int i=0;i<rates_total;i++)
+      {
+         if(i<1){ wma[i]=close[i]; continue; }
+         // ATR平均(参照期間)
+         double am=0; int ac=0;
+         for(int k=0;k<InpAtrRefPeriod && i-k>=0;k++){ am+=atr[i-k]; ac++; }
+         am=(ac>0)?am/ac:atr[i];
+         double ratio=(am>0)?atr[i]/am:1.0;       // ATR水準(1で平均並み)
+         // ratioを0〜1に写像してαを決める(高ratio=高ボラ)
+         double t=MathMin(2.0,MathMax(0.0,ratio))/2.0; // 0〜1
+         double a;
+         if(InpHighVolFaster) a=InpAtrSlowA+(InpAtrFastA-InpAtrSlowA)*t;       // 高ボラで速い
+         else                 a=InpAtrFastA-(InpAtrFastA-InpAtrSlowA)*t;       // 高ボラで遅い
+         wma[i]=close[i]*a + wma[i-1]*(1.0-a);
+      }
+   }
+   else if(InpWmaType==WT_ATR_TREND)
+   {
+      // ATR Trend: ATRの「傾き」(過去N本との変化率)でαを変える適応EMA
+      //   ATR拡大局面で速く追従。
+      for(int i=0;i<rates_total;i++)
+      {
+         if(i<1){ wma[i]=close[i]; continue; }
+         int j=MathMax(0,i-InpAtrRefPeriod);
+         double base=atr[j];
+         double chg=(base>0)?(atr[i]-base)/base:0.0;  // ATR変化率(+で拡大)
+         double t=MathMin(1.0,MathMax(0.0,chg));       // 0〜1(拡大ほど1)
+         double a=InpAtrSlowA+(InpAtrFastA-InpAtrSlowA)*t; // 拡大で速い
+         wma[i]=close[i]*a + wma[i-1]*(1.0-a);
+      }
+   }
+   else if(InpWmaType==WT_HMA)   Calc_HMA  (wma, close, InpWmaPeriod, rates_total);
+   else if(InpWmaType==WT_DEMA)  Calc_DEMA (wma, close, InpWmaPeriod, rates_total);
+   else if(InpWmaType==WT_ZLEMA) Calc_ZLEMA(wma, close, InpWmaPeriod, rates_total);
+   else if(InpWmaType==WT_MAMA)  Calc_MAMA (wma, close, InpMamaFast, InpMamaSlow, rates_total);
+   else if(InpWmaType==WT_LSMA)  Calc_LSMA (wma, close, InpWmaPeriod, rates_total);
+   else if(InpWmaType==WT_VWAP)  Calc_VWAP (wma, high, low, close, tick_volume, InpWmaPeriod, rates_total);
+
+   // ── 表示用ライン wmaShow[](ロジックは生 wma[](KAMA等)のまま、線だけ平滑化) ──
+   //   KAMAは蛇行しやすいので、表示は EMA(InpLineSmooth) で滑らかに見せる。
+   //   slope/wmaDir/背景/エントリーは全て生 wma[] を使うので挙動は変わらない。
+   double wmaShow[]; ArrayResize(wmaShow, rates_total);
+   {
+      int smN = MathMax(1, InpLineSmooth);
+      if(smN<=1){ for(int i=0;i<rates_total;i++) wmaShow[i]=wma[i]; }
+      else{
+         double aS = 2.0/(smN+1.0);
+         wmaShow[0]=wma[0];
+         for(int i=1;i<rates_total;i++) wmaShow[i]=wma[i]*aS + wmaShow[i-1]*(1.0-aS);
+      }
+   }
+
+   // ── 引き金/スパイク線(ema[])も TMA/VWMA/ATR系に対応 ──
+   //   SMA/WMA/SMMA/EMA/KAMA/VIDYA/FRAMA は MakeMA のハンドルで対応済み。
+   //   ここでは iMA に無い4種だけ、wma[]と同じ式で ema[] を上書きする。
+   //   ※M5(チャート足)の引き金線のみ。M1引き金(応用フィルター)はハンドルのまま。
+   if(InpEmaType==WT_TMA)
+   {
+      int h=(InpEmaPeriod+1)/2;
+      double tmp[]; ArrayResize(tmp,rates_total);
+      for(int i=0;i<rates_total;i++){ double s=0;int c=0; for(int k=0;k<h&&i-k>=0;k++){s+=close[i-k];c++;} tmp[i]=(c>0)?s/c:close[i]; }
+      for(int i=0;i<rates_total;i++){ double s=0;int c=0; for(int k=0;k<h&&i-k>=0;k++){s+=tmp[i-k];c++;} ema[i]=(c>0)?s/c:close[i]; }
+   }
+   else if(InpEmaType==WT_VWMA)
+   {
+      for(int i=0;i<rates_total;i++)
+      {
+         if(i<InpEmaPeriod-1){ ema[i]=close[i]; continue; }
+         double sp=0,sv=0;
+         for(int k=0;k<InpEmaPeriod;k++){ double v=(double)tick_volume[i-k]; sp+=close[i-k]*v; sv+=v; }
+         ema[i]=(sv>0)?sp/sv:close[i];
+      }
+   }
+   else if(InpEmaType==WT_ATR_ADAPT)
+   {
+      for(int i=0;i<rates_total;i++)
+      {
+         if(i<1){ ema[i]=close[i]; continue; }
+         double am=0; int ac=0;
+         for(int k=0;k<InpAtrRefPeriod && i-k>=0;k++){ am+=atr[i-k]; ac++; }
+         am=(ac>0)?am/ac:atr[i];
+         double ratio=(am>0)?atr[i]/am:1.0;
+         double t=MathMin(2.0,MathMax(0.0,ratio))/2.0;
+         double a;
+         if(InpHighVolFaster) a=InpAtrSlowA+(InpAtrFastA-InpAtrSlowA)*t;
+         else                 a=InpAtrFastA-(InpAtrFastA-InpAtrSlowA)*t;
+         ema[i]=close[i]*a + ema[i-1]*(1.0-a);
+      }
+   }
+   else if(InpEmaType==WT_ATR_TREND)
+   {
+      for(int i=0;i<rates_total;i++)
+      {
+         if(i<1){ ema[i]=close[i]; continue; }
+         int j=MathMax(0,i-InpAtrRefPeriod);
+         double base=atr[j];
+         double chg=(base>0)?(atr[i]-base)/base:0.0;
+         double t=MathMin(1.0,MathMax(0.0,chg));
+         double a=InpAtrSlowA+(InpAtrFastA-InpAtrSlowA)*t;
+         ema[i]=close[i]*a + ema[i-1]*(1.0-a);
+      }
+   }
+   else if(InpEmaType==WT_HMA)   Calc_HMA  (ema, close, InpEmaPeriod, rates_total);
+   else if(InpEmaType==WT_DEMA)  Calc_DEMA (ema, close, InpEmaPeriod, rates_total);
+   else if(InpEmaType==WT_ZLEMA) Calc_ZLEMA(ema, close, InpEmaPeriod, rates_total);
+   else if(InpEmaType==WT_MAMA)  Calc_MAMA (ema, close, InpMamaFast, InpMamaSlow, rates_total);
+   else if(InpEmaType==WT_LSMA)  Calc_LSMA (ema, close, InpEmaPeriod, rates_total);
+   else if(InpEmaType==WT_VWAP)  Calc_VWAP (ema, high, low, close, tick_volume, InpEmaPeriod, rates_total);
+
+   // --- M1の値（引き金用・直近 InpM1Bars 本）---
+   datetime t1[]; double c1[], e1[], s1[], a1[], conv1[];
+   int m1count = 0;
+   if(InpFilM1Spike && PeriodSeconds(_Period) > PeriodSeconds(PERIOD_M1))
+   {
+      int want = InpM1Bars;
+      int nT = CopyTime(_Symbol, PERIOD_M1, 0, want, t1);
+      int nC = CopyClose(_Symbol, PERIOD_M1, 0, want, c1);
+      int nE = CopyBuffer(hEMA1, 0, 0, want, e1);
+      int nS = CopyBuffer(hSMA1, 0, 0, want, s1);
+      int nA = CopyBuffer(hATR1, 0, 0, want, a1);
+      if(nT>0 && nC>0 && nE>0 && nS>0 && nA>0)
+      {
+         ArraySetAsSeries(t1,false); ArraySetAsSeries(c1,false);
+         ArraySetAsSeries(e1,false); ArraySetAsSeries(s1,false);
+         ArraySetAsSeries(a1,false);
+         m1count = MathMin(MathMin(nT,nC), MathMin(MathMin(nE,nS),nA));
+         ArrayResize(conv1, m1count);
+         for(int k=0; k<m1count; k++)
+         {
+            if(a1[k] > 0)
+            {
+               double sp1 = MathMax(MathMax(MathAbs(c1[k]-e1[k]),
+                                            MathAbs(c1[k]-s1[k])),
+                                            MathAbs(e1[k]-s1[k]));
+               conv1[k] = sp1/a1[k];
+            }
+            else conv1[k] = 0.0;
+         }
+      }
+   }
+
+   int barSecs = PeriodSeconds(_Period);
+
+   // ポジション状態は先頭から順に追うため毎回 need から全再計算。
+   int  pos        = 0;
+   int  trendDir   = 0;     // 確立中のWMAトレンド方向(灰を挟んでも継続・反対色で更新)
+   bool segHadEntry= false; // 現トレンドで既に1回エントリーしたか
+   bool prevSpike5 = false;
+   int  p1         = 0;   // M1配列を前進させるポインタ
+   int  cdLeft     = 0;   // 残りクールダウン本数(決済後 InpCooldownBars 本)
+   int  colorRun   = 0;   // 同方向の色が連続している本数(0=グレー)。持続確認用
+   int  prevDirRun = 0;   // 1本前のwmaDir(連続判定用)
+   int  prevWmaDir = 0;   // ★Ver8: 1本前のwmaDir(決済の直接フリップ判定用。色保持の影響を受けない生の前足方向)
+   int  grayRun    = 0;   // ★Ver8: 保有中にグレー(or非直接の逆)が連続している本数(中間色チラつき無視用)
+   int  pM15       = 0;   // ★Ver8: M5足に対応するM15足を追うポインタ(オーバーレイ描画用)
+   int  heldDir    = 0;   // (Ver8で表示の色保持は廃止。未使用)
+
+   // ウォームアップ区間を空に
+   for(int j=0; j<need && j<rates_total; j++)
+   {
+      BufEmaNorm[j]=EMPTY_VALUE; BufEmaSpike[j]=EMPTY_VALUE; BufM15Down[j]=EMPTY_VALUE;
+      BufWmaUp[j]=EMPTY_VALUE;   BufWmaDown[j]=EMPTY_VALUE; BufWmaFlat[j]=EMPTY_VALUE;
+      BufSma20[j]=EMPTY_VALUE; BufSma20Col[j]=2;
+      BufBuy[j]=0.0; BufSell[j]=0.0; BufExit[j]=0.0; BufOvershoot[j]=0.0;
+      BufReason[j]=0.0;
+   }
+
+   // 背景は新規バー時のみ再描画(毎ティックの全再描画による点滅・高CPUを防止)
+   static datetime s_lastBgBar = 0;
+   bool doBg = InpShowBG && (prev_calculated==0 || time[rates_total-1]!=s_lastBgBar);
+   s_lastBgBar = time[rates_total-1];
+
+   for(int i=need; i<rates_total; i++)
+   {
+      BufEmaNorm[i]=EMPTY_VALUE; BufEmaSpike[i]=EMPTY_VALUE; BufM15Down[i]=EMPTY_VALUE;
+      BufWmaUp[i]=EMPTY_VALUE;   BufWmaDown[i]=EMPTY_VALUE; BufWmaFlat[i]=EMPTY_VALUE;
+      BufSma20[i]=sma2[i];
+      // SMA20(二重平滑)の傾きで5段階カラー(アクア→水色→グレー→薄マゼンタ→マゼンタ)
+      if(i>=1 && atr[i]>0)
+      {
+         double sl = (sma2[i]-sma2[i-1])/atr[i];
+         int sc;
+         if(sl >=  InpWmaSlopeTh*1.5)      sc=0; // 強い上昇 アクア
+         else if(sl >=  InpWmaSlopeTh*0.5) sc=1; // 上昇     水色
+         else if(sl <= -InpWmaSlopeTh*1.5) sc=4; // 強い下降 マゼンタ
+         else if(sl <= -InpWmaSlopeTh*0.5) sc=3; // 下降     薄マゼンタ
+         else                              sc=2; // レンジ   グレー
+         BufSma20Col[i]=sc;
+      }
+      else BufSma20Col[i]=2;
+      BufBuy[i]=0.0; BufSell[i]=0.0; BufExit[i]=0.0; BufOvershoot[i]=0.0;
+      BufReason[i]=0.0;
+      if(atr[i]<=0) continue;
+
+      double price = close[i];
+
+      // --- M5 EMA10スパイク（表示＆代替トリガー）---
+      double sp5 = MathMax(MathMax(MathAbs(price-ema[i]),
+                                   MathAbs(price-sma[i])),
+                                   MathAbs(ema[i]-sma[i]));
+      double conv5 = sp5/atr[i];
+      bool spike5 = (conv5 > InpSpikeTh);
+      int emaDir5 = 0;
+      if(price > ema[i]) emaDir5 = 1; else if(price < ema[i]) emaDir5 = -1;
+
+      // --- M1の引き金（このM5足の中で最初のM1スパイク点灯を探す）---
+      int  m1Dir = 0;
+      bool m1Onset = false;
+      if(m1count > 0)
+      {
+         datetime t0 = time[i];
+         datetime te = time[i] + barSecs;
+         while(p1 < m1count && t1[p1] < t0) p1++;     // この足の先頭まで前進
+         int q = p1;
+         while(q < m1count && t1[q] < te)             // この足の中を走査
+         {
+            bool onsetq = (conv1[q] > InpM1SpikeTh) &&
+                          (q==0 || conv1[q-1] <= InpM1SpikeTh);
+            if(onsetq)
+            {
+               m1Onset = true;
+               if(c1[q] > e1[q]) m1Dir = 1; else if(c1[q] < e1[q]) m1Dir = -1;
+               break;
+            }
+            q++;
+         }
+      }
+
+      // --- ★Ver8: 15分足オーバーレイ(プロット1=NORM/2=SPIKE)。案ア: M15方向あり=SPIKE / M15グレー=NORM ---
+      //   M5足 time[i] に対応するM15足までポインタを進めて、その値・方向で描画。
+      while(pM15+1 < m15n && m15time[pM15+1] <= time[i]) pM15++;
+      BufEmaNorm[i]=EMPTY_VALUE; BufEmaSpike[i]=EMPTY_VALUE; BufM15Down[i]=EMPTY_VALUE; // この足を一旦クリア
+      if(m15n > 0 && pM15 >= 0 && pM15 < m15n && m15ma[pM15]!=EMPTY_VALUE && m15ma[pM15]>0.0)
+      {
+         int md = m15dir[pM15];
+         if(md==1)       { BufEmaSpike[i]=m15ma[pM15]; BufEmaSpike[i-1]=m15ma[pM15]; } // UP
+         else if(md==-1) { BufM15Down[i] =m15ma[pM15]; BufM15Down[i-1] =m15ma[pM15]; } // DOWN
+         else            { BufEmaNorm[i] =m15ma[pM15]; BufEmaNorm[i-1] =m15ma[pM15]; } // NORM(グレー)
+      }
+
+      // --- WMAの色 ---
+      double slope = (wma[i]-wma[i-1])/atr[i];
+      // --- 色のヒステリシス(粘り) ---
+      //   点灯= InpWmaSlopeTh / 消灯= InpWmaSlopeTh*InpWmaStickyMult。
+      //   一度点いた色は、傾きが消灯値を割る or 反対の点灯値を割るまで維持=途切れない。
+      double thOn  = InpWmaSlopeTh;
+      double thOff = InpWmaSlopeTh * InpWmaStickyMult;
+      int wmaDir = 0;
+      if(prevDirRun == 1)       wmaDir = (slope < -thOn) ? -1 : (slope <  thOff ? 0 :  1);
+      else if(prevDirRun == -1) wmaDir = (slope >  thOn) ?  1 : (slope > -thOff ? 0 : -1);
+      else                      wmaDir = (slope >  thOn) ?  1 : (slope < -thOn  ? -1 : 0);
+      // 色の連続本数(同方向が何本続いたか)。グレーで0にリセット。
+      if(wmaDir==0)                 colorRun = 0;
+      else if(wmaDir==prevDirRun)   colorRun++;
+      else                          colorRun = 1;
+      prevDirRun = wmaDir;
+
+      // ★Ver8 土台①: 単一の真実(WYSIWYG)。表示の色 = wmaDir = エントリー判定方向。
+      //   表示専用の色保持(旧InpColorHoldBars/GrayHoldBars)は廃止。連続化は
+      //   ヒステリシス(InpWmaStickyMult)で“判定そのものを粘らせる”ことで表示も判定も同時に連続化する。
+      int bgDir = wmaDir;   // 表示(背景/線色)も判定もこの値1本
+
+      if(bgDir==1)      { BufWmaUp[i]=wmaShow[i];   BufWmaUp[i-1]=wmaShow[i-1]; }
+      else if(bgDir==-1){ BufWmaDown[i]=wmaShow[i]; BufWmaDown[i-1]=wmaShow[i-1]; }
+      else              { BufWmaFlat[i]=wmaShow[i]; BufWmaFlat[i-1]=wmaShow[i-1]; }
+
+      // --- 背景色(backend_1統合)。wmaDirで塗る=線色/エントリー許可方向と一致 ---
+      if(doBg && i >= rates_total-InpBgLookback)
+      {
+         color bgc = (bgDir==1) ? InpColorBull :
+                     (bgDir==-1)? InpColorBear : InpColorRange;
+         datetime tR = (i+1<rates_total) ? time[i+1] : time[i]+barSecs;
+         DrawBG(time[i], tR, bgc);
+      }
+
+      // --- WMAトレンドの更新（灰は継続扱い・反対色の点灯で新トレンド）---
+      // --- WMAトレンドの更新（色変化でtrendDirを更新。直接フリップではロック解除しない）---
+      //   ★ルール: グレーを挟んだら本命=解除して色確認エントリー /
+      //            グレーなしの直接フリップは調整波=見送り。
+      //   よって segHadEntry は「色変化」では解除せず、「グレー出現」でのみ解除する。
+      if(wmaDir==1 && trendDir!=1)        { trendDir=1;  }
+      else if(wmaDir==-1 && trendDir!=-1) { trendDir=-1; }
+      // ★グレー(平行)が出たら本命扱い:再エントリーロックとクールダウンを解除(=次の色確認で入れる)
+      if(wmaDir==0) { segHadEntry = false; cdLeft = 0; }
+
+      // --- 圧縮(スクイーズ)判定（BBがKCの内側=圧縮）M5基準 ---
+      bool sqzOn = false;
+      if(InpFilSqueeze)
+      {
+         double basis = sma[i];
+         double var = 0.0, rsum = 0.0;
+         for(int k=0; k<InpSmaPeriod; k++)
+         {
+            double dd = close[i-k]-basis; var += dd*dd;
+            int jj = i-k;
+            double rng;
+            if(jj>0)
+            {
+               double aa = high[jj]-low[jj];
+               double bb = MathAbs(high[jj]-close[jj-1]);
+               double cc = MathAbs(low[jj]-close[jj-1]);
+               rng = MathMax(aa, MathMax(bb,cc));
+            }
+            else rng = high[jj]-low[jj];
+            rsum += rng;
+         }
+         double sd      = MathSqrt(var/InpSmaPeriod);
+         double rangema = rsum/InpSmaPeriod;
+         double upBB = basis + InpBBMult*sd,      loBB = basis - InpBBMult*sd;
+         double upKC = basis + InpKCMult*rangema, loKC = basis - InpKCMult*rangema;
+         sqzOn = (loBB > loKC) && (upBB < upKC);   // BBがKC内 = 圧縮
+      }
+
+      bool isLastBar = (i==rates_total-1);
+
+      // ── ★A案:実ポジ同期(ライブ足のみ) ──
+      //   EAがSL等で既に手仕舞い済み(実際はノーポジ)なら、指標の仮想保有も解除。
+      //   これで「保有中(コード20)」のまま空転する状態を防ぎ、グレー後の再武装を可能にする。
+      //   ※過去足は実ポジ情報が無いので純シミュレーションのまま(ライブ足だけ補正)。
+      if(isLastBar && InpSyncEAPos && pos!=0 && !EAHasPosition())
+      {
+         pos = 0;   // 実ポジ無し → 指標も保有解除(segHadEntryは保持=グレーまで再エントリーしない)
+      }
+
+      // ── オーバーシュート判定(大きな波の最終局面の急変) ──
+      //   条件1: BB拡大中(圧縮でない=波が進行) 条件2: 直近3本の変化がATR2.5倍超
+      //   Python(analyzer)と同じ条件。両方成立で印を出す。
+      if(i >= 3 && atr[i] > 0 && !sqzOn)
+      {
+         double mv = MathAbs(close[i] - close[i-3]);
+         if(mv >= atr[i]*2.5)
+            BufOvershoot[i] = high[i] + atr[i]*1.2;   // ローソク上にマゼンタ印
+      }
+
+      // --- ② 決済（保有中）。土台: 方向MAが保有を支えなくなったら決済。平均足優先は任意 ---
+      //   InpHaPriorityExit=OFF(既定): 方向MAがグレー化(cfm本確認)で決済。逆色への直接フリップは即決済。
+      //   ※ドテン(同足で反対へ反転)は廃止。反対側は通常の確認付きエントリーに任せる(フラッシュ対策)。
+      //   InpHaPriorityExit=ON       : 旧式(平均足の逆色転換で決済。BT比較用)。
+      bool justExited = false;   // この足で決済したか(同足の通常エントリー防止)
+      int  cfm = MathMax(1, InpExitGrayConfirmBars);
+      if(pos==1)
+      {
+         if(InpHaPriorityExit)
+         {
+            // 旧式: 平均足が陰線に転換で決済(BT比較用)
+            if(haColor[i]==1)
+            { BufExit[i]=sma2[i]; pos=0; justExited=true; BufReason[i]=30.0; cdLeft=InpCooldownBars; grayRun=0;
+              if(InpAlert && isLastBar && time[i]!=g_lastAlertTime){ Alert(_Symbol," 終了(ロング)"); g_lastAlertTime=time[i]; } }
+         }
+         else if(wmaDir==-1 && prevWmaDir==1)
+         {
+            // ★直接フリップ(グレーを挟まず1→-1)=強い逆転 → 即決済(反転はしない)
+            BufExit[i]=sma2[i]; pos=0; justExited=true; BufReason[i]=30.0; cdLeft=InpCooldownBars; grayRun=0;
+            if(InpAlert && isLastBar && time[i]!=g_lastAlertTime){ Alert(_Symbol," 終了(ロング・急反転)"); g_lastAlertTime=time[i]; }
+         }
+         else if(wmaDir!=1)
+         {
+            // ★保有色が外れた(グレー)。中間色のチラつきは無視し、cfm本続いたら決済。
+            grayRun++;
+            if(grayRun>=cfm)
+            { BufExit[i]=sma2[i]; pos=0; justExited=true; BufReason[i]=30.0; cdLeft=InpCooldownBars; grayRun=0;
+              if(InpAlert && isLastBar && time[i]!=g_lastAlertTime){ Alert(_Symbol," 終了(ロング)"); g_lastAlertTime=time[i]; } }
+         }
+         else grayRun=0;   // まだ上色=保有継続
+      }
+      else if(pos==-1)
+      {
+         if(InpHaPriorityExit)
+         {
+            if(haColor[i]==0)
+            { BufExit[i]=sma2[i]; pos=0; justExited=true; BufReason[i]=30.0; cdLeft=InpCooldownBars; grayRun=0;
+              if(InpAlert && isLastBar && time[i]!=g_lastAlertTime){ Alert(_Symbol," 終了(ショート)"); g_lastAlertTime=time[i]; } }
+         }
+         else if(wmaDir==1 && prevWmaDir==-1)
+         {
+            BufExit[i]=sma2[i]; pos=0; justExited=true; BufReason[i]=30.0; cdLeft=InpCooldownBars; grayRun=0;
+            if(InpAlert && isLastBar && time[i]!=g_lastAlertTime){ Alert(_Symbol," 終了(ショート・急反転)"); g_lastAlertTime=time[i]; }
+         }
+         else if(wmaDir!=-1)
+         {
+            grayRun++;
+            if(grayRun>=cfm)
+            { BufExit[i]=sma2[i]; pos=0; justExited=true; BufReason[i]=30.0; cdLeft=InpCooldownBars; grayRun=0;
+              if(InpAlert && isLastBar && time[i]!=g_lastAlertTime){ Alert(_Symbol," 終了(ショート)"); g_lastAlertTime=time[i]; } }
+         }
+         else grayRun=0;
+      }
+      else grayRun=0;   // ノーポジはリセット
+
+      // 保有継続中なら「保有中(新規対象外)」=20
+      if(pos!=0) BufReason[i]=20.0;
+
+      // クールダウン消化(ノーポジの足ごとに1本)
+      if(pos==0 && !justExited && cdLeft>0) cdLeft--;
+
+      // --- ① エントリー（ノーポジ時。ただし決済と同じ足ではドテンしない）---
+      if(pos==0 && !justExited)
+      {
+         if(cdLeft>0)
+         {
+            BufReason[i]=15.0;   // クールダウン中=新規を出さない(調整波回避)
+         }
+         else
+         {
+         // ── 新方式: ベースMA(選択したMAのslope方向)が主役 ──
+         //   方向 d は wmaDir(=ベースMAの傾き) で決める。
+         //   M1スパイク/圧縮/オーバーシュートは「任意フィルター」。
+         //   全フィルターOFFなら、ベースMAの傾きだけで矢印を出す。
+         int d = wmaDir;   // ベースMAの傾き方向(1=上/-1=下/0=平行グレー)
+
+         if(d == 0)
+         {
+            BufReason[i]=10.0;   // グレーゾーン(レンジ)=待機
+         }
+         else
+         {
+            bool allow = true;
+
+            // ★守備つまみ②:色がInpColorConfirmBars本“連続”するまで入らない
+            //   (レンジ内の1本だけの跳ね=単発を消す。1なら従来どおり即許可)
+            if(colorRun < InpColorConfirmBars) { allow = false; BufReason[i]=17.0; } // 色の確認待ち
+
+            // ★調整波回避(任意): 平均足の色がエントリー方向と一致していること
+            //   (FRAMAが一瞬上向いても、平均足がまだ陰線=押し目/戻りなら入らない)
+            if(allow && !InpAlsoTakePullback)
+            {
+               bool haAgree = (d==1 && haColor[i]==0) || (d==-1 && haColor[i]==1);
+               if(!haAgree) { allow = false; BufReason[i]=18.0; } // 平均足が逆色=調整波回避
+            }
+
+            // ①M1スパイク要求(ONの時だけ)：引き金が同方向に点灯していること
+            if(InpFilM1Spike)
+            {
+               bool m1ok = (m1Onset && m1Dir==d);
+               bool m5ok = (spike5 && !prevSpike5 && emaDir5==d);
+               if(!(m1ok || m5ok)) { allow = false; BufReason[i]=11.0; } // M1スパイク無し
+            }
+
+            // ②圧縮フィルター(ONの時だけ)：スクイーズ中は弾く
+            if(allow && InpFilSqueeze && sqzOn) { allow = false; BufReason[i]=12.0; } // 圧縮
+
+            // ③オーバーシュートフィルター(ONの時だけ)：急変・行き過ぎは弾く
+            if(allow && InpFilOvershoot && BufOvershoot[i] != 0.0) { allow = false; BufReason[i]=13.0; } // オーバーシュート
+
+            // ⑤方向MA(KAMA)とEMA点灯(スパイク)の同方向・同時点灯を要求(ONの時)
+            //   d=KAMAの傾き方向, spike5=EMA収束スパイク点灯, emaDir5=EMAスパイクの向き
+            if(allow && InpRequireEmaColit && !(spike5 && emaDir5==d)) { allow = false; BufReason[i]=16.0; } // EMA未点灯/方向不一致
+
+            // 既に同方向で1回出していたら、平行(グレー)に戻るまで再度出さない
+            //   (レンジでの連続矢印を防ぐ。trendDirが変わればまた出せる)
+            if(allow && segHadEntry && d==trendDir) { allow = false; BufReason[i]=14.0; } // 再エントリーロック
+
+            if(allow)
+            {
+               if(d==1)
+               {
+                  BufBuy[i] = low[i] - atr[i]*0.5; BufReason[i]=1.0;   // BUY発生
+                  pos = 1; segHadEntry = true; trendDir = 1;
+                  if(InpAlert && isLastBar && time[i]!=g_lastAlertTime)
+                  { Alert(_Symbol," BUYシグナル(ベースMA)"); g_lastAlertTime=time[i]; }
+               }
+               else
+               {
+                  BufSell[i] = high[i] + atr[i]*0.5; BufReason[i]=2.0;  // SELL発生
+                  pos = -1; segHadEntry = true; trendDir = -1;
+                  if(InpAlert && isLastBar && time[i]!=g_lastAlertTime)
+                  { Alert(_Symbol," SELLシグナル(ベースMA)"); g_lastAlertTime=time[i]; }
+               }
+            }
+         }
+         }
+      }
+
+      prevSpike5 = spike5;
+      prevWmaDir = wmaDir;   // ★Ver8: 次足の直接フリップ判定用に今足のwmaDirを保存
+   }
+   if(doBg) ChartRedraw(0);
+   return(rates_total);
+}
+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
