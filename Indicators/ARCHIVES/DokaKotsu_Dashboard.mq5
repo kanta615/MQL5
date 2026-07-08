@@ -30,65 +30,6 @@ color COL_YELLOW  = C'230,184,0';    // #e6b800
 color COL_ORANGE  = C'245,166,35';   // #f5a623
 color COL_DARKCELL= C'28,31,38';     // #1c1f26
 
-//--- ★2026-07-07追加: DokaKotsu_US_Calendar.mq5が書き出す当日の経済指標ファイル(共通)
-#define CAL_FILE "DokaKotsu_Calendar_Today.txt"
-#define CAL_MAXROWS 6   // パネルに表示する最大件数(多すぎて縦に伸びすぎないよう上限)
-
-//+------------------------------------------------------------------+
-//| サーバー時間→JSTのオフセット秒(DokaKotsu_US_Calendar.mq5と同じ考え方) |
-//+------------------------------------------------------------------+
-int ServerToJstShiftDKD()
-  {
-   int g = (int)(TimeTradeServer() - TimeGMT());
-   g = (int)MathRound((double)g / 3600.0) * 3600;
-   return 9 * 3600 - g;
-  }
-
-//+------------------------------------------------------------------+
-//| ★2026-07-07追加: DokaKotsu_US_Calendar.mq5が書き出したテキストを読み、  |
-//| 「今日」の分だけラベル・JST時刻を配列で返す(件数を返り値に)              |
-//+------------------------------------------------------------------+
-int ReadTodayEconEvents(string &labels[], string &hhmms[])
-  {
-   ArrayResize(labels, 0);
-   ArrayResize(hhmms,  0);
-
-   int h = FileOpen(CAL_FILE, FILE_READ|FILE_TXT|FILE_UNICODE|FILE_COMMON);
-   if(h == INVALID_HANDLE)
-      return 0;
-
-   datetime jstNow = TimeTradeServer() + ServerToJstShiftDKD();
-   if(jstNow <= 0) jstNow = TimeCurrent() + ServerToJstShiftDKD();
-   string todayTag = TimeToString(jstNow, TIME_DATE);   // "2026.07.07" 形式(MQL5既定)
-
-   bool dateOk = false;
-   int  n = 0;
-   while(!FileIsEnding(h))
-     {
-      string line = FileReadString(h);
-      if(line == "")
-         continue;
-      if(StringFind(line, "DATE=") == 0)
-        {
-         dateOk = (StringSubstr(line, 5) == todayTag);
-         continue;
-        }
-      string parts[];
-      int cnt = StringSplit(line, '|', parts);
-      if(cnt >= 4 && parts[0] == "EVENT" && dateOk && n < CAL_MAXROWS)
-        {
-         ArrayResize(labels, n + 1);
-         ArrayResize(hhmms,  n + 1);
-         labels[n] = parts[2];
-         hhmms[n]  = parts[3];
-         n++;
-        }
-     }
-   FileClose(h);
-   return n;
-  }
-
-
 //+------------------------------------------------------------------+
 //| オブジェクト生成ヘルパー                                          |
 //+------------------------------------------------------------------+
@@ -259,59 +200,22 @@ void CreatePanel()
      }
    curY+=segH+(int)(20*sc);
 
-   // 経済指標見出し（★2026-07-07変更: 「本日の趣味レーション」の誤字修正＋日付表示）
+   // アコーディオン見出し（第一段階では静的表示）
    int accH=(int)(20*sc);
    CreateRectLabel("accbox",x+pad,curY,innerW,accH,COL_BG,COL_BORDER,1);
-   {
-      datetime jstNow2 = TimeTradeServer() + ServerToJstShiftDKD();
-      if(jstNow2 <= 0) jstNow2 = TimeCurrent() + ServerToJstShiftDKD();
-      string dateStr = TimeToString(jstNow2, TIME_DATE);
-      StringReplace(dateStr, ".", "/");
-      CreateLabelText("acclbl",x+pad+8,curY+accH/2-6,"▲ 本日の経済指標  "+dateStr,COL_GRAY2,7);
-   }
+   CreateLabelText("acclbl",x+pad+8,curY+accH/2-6,"▲ 本日の趣味レーション",COL_GRAY2,7);
    curY+=accH+(int)(12*sc);
 
-   // ★2026-07-07変更: GDP/PCIの固定サンプル2行→テキストファイルから読んだ当日分を可変件数で表示。
-   //   フォントサイズはご要望により従来(7)の50%増(11)に拡大。
+   // 経済指標サンプル行
    int calH=(int)(18*sc);
-   int calFont=11;   // 元は7。50%増(7*1.5=10.5→11に切り上げ)
-   string evLabels[], evHhmm[];
-   int evCount = ReadTodayEconEvents(evLabels, evHhmm);
-
-   if(evCount == 0)
-     {
-      CreateRectLabel("calempty",x+pad,curY,innerW,calH,COL_CELL,COL_CELL,1);
-      CreateLabelText("calemptytxt",x+pad+6,curY+calH/2-7,"本日は該当指標なし",C'170,170,170',calFont);
-      curY+=calH+(int)(14*sc);
-     }
-   else
-     {
-      for(int i=0;i<evCount;i++)
-        {
-         string rowName="calrow"+IntegerToString(i);
-         string aName  ="cal"+IntegerToString(i)+"a";
-         string bName  ="cal"+IntegerToString(i)+"b";
-         CreateRectLabel(rowName,x+pad,curY,innerW,calH,COL_CELL,COL_CELL,1);
-         CreateLabelText(aName,x+pad+6,curY+calH/2-7,evLabels[i],C'170,170,170',calFont);
-         CreateLabelText(bName,rightEdge-4,curY+calH/2-7,evHhmm[i],COL_GRAY2,calFont,"Arial",ANCHOR_RIGHT_UPPER);
-         curY+=calH+(int)(8*sc);
-        }
-      curY+=(int)(6*sc);   // 最終行の下に少し余白
-     }
-
-   //--- ★2026-07-07追加: 前回より件数が減った場合、余った行オブジェクトが
-   //    消えずに前日分の文字列のまま残ってしまうのを防ぐ(掃除)
-   for(int i=evCount; i<CAL_MAXROWS; i++)
-     {
-      ObjectDelete(0, PFX+"calrow"+IntegerToString(i));
-      ObjectDelete(0, PFX+"cal"+IntegerToString(i)+"a");
-      ObjectDelete(0, PFX+"cal"+IntegerToString(i)+"b");
-     }
-   if(evCount > 0)   // 該当指標が出てきた日は、以前の「該当指標なし」表示を消す
-     {
-      ObjectDelete(0, PFX+"calempty");
-      ObjectDelete(0, PFX+"calemptytxt");
-     }
+   CreateRectLabel("calrow1",x+pad,curY,innerW,calH,COL_CELL,COL_CELL,1);
+   CreateLabelText("cal1a",x+pad+6,curY+calH/2-6,"GDP",C'170,170,170',7);
+   CreateLabelText("cal1b",rightEdge-4,curY+calH/2-6,"21:30",COL_GRAY2,7,"Arial",ANCHOR_RIGHT_UPPER);
+   curY+=calH+(int)(8*sc);
+   CreateRectLabel("calrow2",x+pad,curY,innerW,calH,COL_CELL,COL_CELL,1);
+   CreateLabelText("cal2a",x+pad+6,curY+calH/2-6,"PCI",C'170,170,170',7);
+   CreateLabelText("cal2b",rightEdge-4,curY+calH/2-6,"21:30",COL_GRAY2,7,"Arial",ANCHOR_RIGHT_UPPER);
+   curY+=calH+(int)(14*sc);
 
    // 背景サイズを実際のコンテンツ高さに合わせて確定
    int panelH=curY-y+10;
