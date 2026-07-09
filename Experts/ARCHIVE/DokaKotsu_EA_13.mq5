@@ -1777,9 +1777,6 @@ string ReasonText(int code)
       case 32: return "決済(MAグレー化)";
       case 35: return "ZigZag弱波(反対側到達間近)";              // ★2026-07-06追加(indicator_12)
       case 36: return "ADX継続未達(直前グレーからの即時フリップ)"; // ★2026-07-06追加(indicator_12)
-      case 33: return "決済(スパイク面積)";                      // ★2026-07-08追加(indicator_13)
-      case 34: return "決済(ウェーブクロス救済)";                 // ★2026-07-08追加(indicator_13)
-      case 37: return "スパイク後エントリー禁止(平均足待ち)";      // ★2026-07-08追加(indicator_13)
       default: return "(未評価)";
    }
 }

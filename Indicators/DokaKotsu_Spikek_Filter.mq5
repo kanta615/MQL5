@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| DokaKotsu_Pullback_Filter.mq5                                    |
+//| DokaKotsu_Spikek_Filter.mq5                                      |
 //| 押し目の値幅×期間(面積)フィルター                                 |
 //|                                                                    |
 //| 面積 = スイング区間の値幅 × 継続バー数                            |
@@ -21,6 +21,9 @@
 //|    ③押し目面積合格(BufPass)が出た足の1本上(次の行)に、             |
 //|      面積の実数値をテキストラベルで表示(サブウィンドウ内)。         |
 //|      決済判断に数値そのものを使う想定のため、視認性を優先。         |
+//|  ■ 2026-07-08 追加変更(DokaKotsu_Pullback_Filter からリネーム)   |
+//|    ④ファイル名/インジケーター名を DokaKotsu_Spikek_Filter へ変更   |
+//|      (ロジック・パラメータは無変更)                               |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
 #property indicator_separate_window
@@ -66,12 +69,12 @@ int OnInit()
    hATR = iATR(_Symbol, _Period, InpATRPeriod);
    if(hATR == INVALID_HANDLE)
      {
-      Print("DokaKotsu_Pullback_Filter: ATRハンドルの作成に失敗しました");
+      Print("DokaKotsu_Spikek_Filter: ATRハンドルの作成に失敗しました");
       return(INIT_FAILED);
      }
 
    // ★2026-07-08: インジケーターリストは名称のみ(比率表示は削除)
-   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu_Pullback_Filter");
+   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu_Spikek_Filter");
    return(INIT_SUCCEEDED);
 }
 

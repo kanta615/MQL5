@@ -665,11 +665,8 @@ void SaveCalendarToJson(datetime jstDayStart, const datetime &evTimes[], const s
    string body = "";
    for(int i = 0; i < n; i++)
      {
-      // ★2026-07-08修正: 各イベントごとの実際のJST日付+時刻を使う(従来はdateStr固定+hhmmだけを
-      //   組み合わせていたため、サーバー時間との時差で日付を跨ぐイベント(例:FOMC 21:00server=翌03:00JST)
-      //   の日付欄が誤って「今日」のまま表示される不具合があった)
-      string evDateTime = TimeToString(evTimes[i] + shift, TIME_DATE|TIME_MINUTES);
-      StringReplace(evDateTime, ".", "-");
+      string hhmm       = TimeToString(evTimes[i] + shift, TIME_MINUTES);   // JST "21:30"
+      string evDateTime = dateStr + " " + hhmm;                              // "2026-07-08 21:30"
       string cat        = CategoryCode(evLabels[i]);
       string imp        = ImportanceCode(evImportance[i]);
 

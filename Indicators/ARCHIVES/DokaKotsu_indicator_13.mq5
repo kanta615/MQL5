@@ -302,7 +302,7 @@ input ENUM_WMATYPE InpM15Type   = WT_KAMA;                  // Ver8/2026-06-22: 
 input int    InpM15Period    = 15;                          // Ver9: 15分足MAの期間(既定15)
 input bool   InpUseM15Filter = true;                        // Ver8: M15一致フィルター(M15が点灯&M5と同方向の時だけエントリー)
 input bool   InpM15ConfirmClosed = false;                   // 2026-06-22更新: false=M15ライブ足参照(確定待ち15分を削りエントリー前倒し。KAMAなのでフラッシュ起きにくい)。true=確定足(WMA時代のフラッシュ対策)
-input int    InpM15EntryConfirm  = 1;                       // 2026-06-24: エントリーのM15確定足要求(0=ライブのみ/1=確定足が逆なら拒否/2=確定足もd必須=深夜グレーのちらつき防止)。点火はライブのまま速い。★2026-07-08(_13)変更:2→1=確定足がグレーでも拒否せず、明確な逆行のみ拒否(reason23緩和)
+input int    InpM15EntryConfirm  = 2;                       // 2026-06-24: エントリーのM15確定足要求(0=ライブのみ/1=確定足が逆なら拒否/2=確定足もd必須=深夜グレーのちらつき防止)。点火はライブのまま速い。
 input double InpM15SlopeTh   = 0.05;                        // Ver8: M15のグレー判定しきい値(M5とは別。小さいほど点灯しやすい/BTで調整)
 input bool   InpM15ApplyToSell = false;                     // 2026-07-08: ZigZagフィルター検証のため再度OFF(SELL方向はM15対象外)に戻す。ZigZagが効かないと判断したらtrueに戻す
 
@@ -1600,9 +1600,9 @@ int OnCalculate(const int rates_total,
                //   深夜グレーのちらつき偽点灯(ライブが一瞬だけ点灯)を防ぐ。
                int m15Live = (m15n>0 && pM15c>=0 && pM15c<m15n)   ? m15dir[pM15c]   : 0; // ライブ(点火)
                int m15Conf = (m15n>0 && pM15c>=1 && pM15c-1<m15n) ? m15dir[pM15c-1] : 0; // 確定(1本前=門番)
-               if(m15Live == -d)
+               if(m15Live != d)
                {
-                  allow = false; BufReason[i]=19.0;                       // ライブM15不一致(グレー/逆)★2026-07-08(_13)変更:m15Live!=d→m15Live==-d=M15グレーは許容し、明確な逆行のみ拒否
+                  allow = false; BufReason[i]=19.0;                       // ライブM15不一致(グレー/逆)
                }
                else if(InpM15EntryConfirm==1 && m15Conf == -d)
                {

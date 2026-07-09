@@ -31,7 +31,7 @@
 //|       DK_EA_LOSSSTREAK_<magic> … 連敗数(連敗表示用)              |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.10"
+#property version   "1.00"
 #property strict
 #property indicator_chart_window
 #property indicator_plots   0
@@ -56,10 +56,6 @@ input int    InpResendMin      = 30;        // 異常継続中の再通知間隔
 input bool   InpNotifyRecover  = true;      // 復旧時も通知するか
 //--- ★損切り救済(EAの再決済)表示
 input int    InpRescueShowMin  = 5;         // 損切り再決済を検知したら、この分数だけ2行目に表示
-//--- ★決済の安全網(見張り+緊急ブザー)
-input string InpIndicatorName  = "DokaKotsu_indicator_10"; // 監視する本体インジ名(buf9 EXIT / buf25 背景方向を読む)
-input bool   InpForceExit      = true;      // ★EXIT継続なのに保有残存(背景も保有方向でない)を検知→EAへ決済指示(GV)
-input int    InpStuckGraceSec  = 20;        // ★その状態がこの秒数続いたら決済指示を発令(EAの自力決済を待つ猶予)
 
 //--- 状態
 enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3 };
@@ -69,15 +65,11 @@ bool      g_started   = false;
 string    LBL_MAIN   = "DKWD_main";
 string    LBL_RESCUE = "DKWD_rescue";       // ★損切り救済の2行目ラベル
 datetime  g_lastRescueSeen = 0;             // ★直近で通知済みの救済時刻(再通知防止)
-int       g_ind            = INVALID_HANDLE; // ★本体インジ(buf9/buf25)ハンドル
-datetime  g_stuckSince     = 0;             // ★EXIT継続なのに保有残存を最初に検知した時刻
-datetime  g_lastForceNotice= 0;             // ★決済指示の通知再送防止
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
    EventSetTimer(InpCheckSec > 0 ? InpCheckSec : 10);
-   g_ind = iCustom(_Symbol, _Period, InpIndicatorName);   // ★EXIT/背景を読むための本体ハンドル
    CreateLabel(LBL_MAIN,   InpY,      InpFontSize, clrSilver, "DokaKotsu : starting...");
    CreateLabel(LBL_RESCUE, InpY + 22, InpFontSize, clrAqua,   "");   // ★救済表示(2行目)
    Check();   // 即時1回
@@ -99,7 +91,6 @@ int OnCalculate(const int rates_total,
 void OnDeinit(const int reason)
 {
    EventKillTimer();
-   if(g_ind != INVALID_HANDLE) IndicatorRelease(g_ind);
    ObjectDelete(0, LBL_MAIN);
    ObjectDelete(0, LBL_RESCUE);
    ChartRedraw(0);
@@ -107,42 +98,6 @@ void OnDeinit(const int reason)
 
 //+------------------------------------------------------------------+
 void OnTimer() { Check(); }
-
-//+------------------------------------------------------------------+
-//| ★本体インジのバッファ読取(buf9 EXIT / buf25 背景方向)          |
-//+------------------------------------------------------------------+
-double ReadIndV(int buf, int shift)
-{
-   if(g_ind == INVALID_HANDLE) return 0.0;
-   double a[];
-   if(CopyBuffer(g_ind, buf, shift, 1, a) > 0) return a[0];
-   return 0.0;
-}
-bool ReadIndNonEmpty(int buf, int shift)
-{
-   double v = ReadIndV(buf, shift);
-   return (v != 0.0 && v != EMPTY_VALUE && MathIsValidNumber(v));
-}
-//--- ★自分のマジックの保有方向(1=買い/-1=売り/0=無し)
-int GetMyPos()
-{
-   string sym = (StringLen(InpWatchSymbol) > 0) ? InpWatchSymbol : _Symbol;
-   for(int i = PositionsTotal()-1; i >= 0; i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) != sym) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
-      return (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? 1 : -1;
-   }
-   return 0;
-}
-//--- ★年月日+時刻スタンプ "2026-06-30 14:25:33"
-string NowStamp()
-{
-   MqlDateTime d; TimeToStruct(TimeLocal(), d);
-   return StringFormat("%04d-%02d-%02d %02d:%02d:%02d", d.year, d.mon, d.day, d.hour, d.min, d.sec);
-}
 
 //+------------------------------------------------------------------+
 //| 監視本体                                                         |
@@ -185,45 +140,32 @@ void Check()
    int rcode   = ReadStopReason();
    int lstreak = ReadLossStreak();
 
-   // --- ★安全網: EXIT(buf9)継続なのに保有残存(背景buf25も保有方向でない=決済すべき) → EAへ決済指示 ---
-   int  posDir   = GetMyPos();
-   bool hasPos   = (posDir != 0);
-   bool exitSig  = ReadIndNonEmpty(9,0) || ReadIndNonEmpty(9,1);   // EXITが現/確定足で出ている
-   int  bgDir    = (int)MathRound(ReadIndV(25,1));                 // 確定足の背景方向(1/0/-1)
-   bool exitWorthy = hasPos && (bgDir != posDir);                  // 背景が保有方向でない(グレー/逆)=決済すべき
-   bool stuck    = hasPos && exitSig && exitWorthy;
-   if(stuck){ if(g_stuckSince==0) g_stuckSince=now; }
-   else     { g_stuckSince=0; }
-   bool fire = stuck && InpForceExit && (now - g_stuckSince) >= InpStuckGraceSec;
-
-   string reqNm = StringFormat("DK_WD_EXITREQ_%d", InpMagic);
-   if(fire)
-      GlobalVariableSet(reqNm, 33.0);                              // ★EAが受けて即決済+再送(手法33)
-   else if(!hasPos && GlobalVariableCheck(reqNm) && GlobalVariableGet(reqNm)!=0.0)
-      GlobalVariableSet(reqNm, 0.0);                               // フラット化→指示を下ろす
-
-   // --- チャート表示(1行目=最重要枠: 年月日+稼働+緊急) ---
-   bool tradeOk = GlobalVariableCheck(StringFormat("DK_EA_TRADEOK_%d",InpMagic)) && GlobalVariableGet(StringFormat("DK_EA_TRADEOK_%d",InpMagic))!=0.0;
-   bool linkOk  = GlobalVariableCheck(StringFormat("DK_EA_LINKOK_%d", InpMagic)) && GlobalVariableGet(StringFormat("DK_EA_LINKOK_%d", InpMagic))!=0.0;
-   string ts   = NowStamp();
-   string hbT  = (eaAge>=0) ? (AgeTxt(eaAge)+"前") : "—";
-   string tail = " / EA心拍 "+hbT+" / 自動売買"+(tradeOk?"ON":"OFF")+" / 連携"+(linkOk?"OK":"NG");
-   color  c; string main;
-   if(eaDown)            { c=clrRed;    main = ts+"  🚨EA停止"+tail+" / EAを確認!"; }
-   else if(stuck)        { c=clrRed;    main = ts+"  🚨EXIT継続なのに保有残存"+tail+(fire?" / 決済指示発令":" / 監視中(猶予)"); }
-   else if(!marketOpen)  { c=clrSilver; main = ts+"  ⏸市場休場"+tail; }
-   else if(reasonDown)   { c=clrOrange; main = ts+"  ⚠理由ログ停止"+tail; }
-   else if(rcode>0)      { c=clrOrange; main = ts+"  ⚠EA稼働(停止理由あり)"+tail+" / "+ReasonText(rcode,lstreak); }
-   else                  { c=clrLime;   main = ts+"  ✅EA正常稼働"+tail+" / 異常なし"; }
-   SetLabel(LBL_MAIN, c, main);
-
-   // 決済指示を発令したらスマホ通知(5分再送防止)
-   if(fire && (g_lastForceNotice==0 || (now-g_lastForceNotice)>=300))
+   // --- チャート表示(1行) ---
+   color  c;
+   string main;
+   string tm = TimeToString(TimeLocal(), TIME_MINUTES);   // 末尾時刻=この監視が生きている証拠
+   switch(st)
    {
-      Notify("【!】DokaKotsu 保有残存→決済指示発令 "+ts);
-      g_lastForceNotice = now;
+      case WD_EA_DOWN:                                     // ⑥ EA停止(赤)
+         c = clrRed;    main = "EA停止中: Warning: EA Stopped: ERROR   " + tm;          break;
+      case WD_REASON_DOWN:                                 // 理由ログ停止(橙・異常)
+         c = clrOrange; main = "DokaKotsu : REASON LOG STOPPED!   " + tm;               break;
+      case WD_MARKET_CLOSED:                               // 相場休場(グレー)
+         c = clrSilver; main = "DokaKotsu : MARKET CLOSED   " + tm;                     break;
+      default:                                             // EA生存・市場オープン
+         if(rcode > 0)                                     // 停止理由あり=意図的に新規停止(橙)
+         {
+            c = clrOrange;
+            main = "DokaKotsu : RUNNING   " + tm + "   ｜ " + ReasonText(rcode, lstreak);
+         }
+         else                                              // 取引可(緑)
+         {
+            c = clrLime;
+            main = "DokaKotsu : RUNNING   " + tm;
+         }
+         break;
    }
-   if(!stuck) g_lastForceNotice = 0;
+   SetLabel(LBL_MAIN, c, main);
    ShowRescue();   // ★損切り再決済(救済)を2行目に数分表示
    ChartRedraw(0);
 

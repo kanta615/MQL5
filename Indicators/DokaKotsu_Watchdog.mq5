@@ -57,7 +57,7 @@ input bool   InpNotifyRecover  = true;      // 復旧時も通知するか
 //--- ★損切り救済(EAの再決済)表示
 input int    InpRescueShowMin  = 5;         // 損切り再決済を検知したら、この分数だけ2行目に表示
 //--- ★決済の安全網(見張り+緊急ブザー)
-input string InpIndicatorName  = "DokaKotsu_indicator_10"; // 監視する本体インジ名(buf9 EXIT / buf25 背景方向を読む)
+input string InpIndicatorPrefix = "DokaKotsu_indicator_"; // ★2026-07-08変更: 監視する本体インジ名の"接頭辞"のみ指定。バージョン番号(_10/_13等)は自動検出するため毎回の手動更新が不要
 input bool   InpForceExit      = true;      // ★EXIT継続なのに保有残存(背景も保有方向でない)を検知→EAへ決済指示(GV)
 input int    InpStuckGraceSec  = 20;        // ★その状態がこの秒数続いたら決済指示を発令(EAの自力決済を待つ猶予)
 
@@ -68,8 +68,42 @@ datetime  g_lastAlert = 0;
 bool      g_started   = false;
 string    LBL_MAIN   = "DKWD_main";
 string    LBL_RESCUE = "DKWD_rescue";       // ★損切り救済の2行目ラベル
+string    LBL_REASON = "DKWD_reason";       // ★2026-07-08追加: 停止理由専用の別行(1行目が画面幅で見切れて理由が読めない対策)
 datetime  g_lastRescueSeen = 0;             // ★直近で通知済みの救済時刻(再通知防止)
 int       g_ind            = INVALID_HANDLE; // ★本体インジ(buf9/buf25)ハンドル
+string    g_indNameSeen    = "";            // ★直近で見つけた実名(ログ確認用)
+
+//+------------------------------------------------------------------+
+//| ★2026-07-08追加: チャートに実際に貼られている本体インジを         |
+//|   接頭辞(InpIndicatorPrefix)だけで探す。バージョン番号(_10/_13等) |
+//|   が変わってもハードコード不要。全サブウィンドウを走査。          |
+//+------------------------------------------------------------------+
+int FindDokaKotsuHandle()
+{
+   int winTotal = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
+   for(int w = 0; w < winTotal; w++)
+   {
+      int total = ChartIndicatorsTotal(0, w);
+      for(int i = 0; i < total; i++)
+      {
+         string name = ChartIndicatorName(0, w, i);
+         if(StringFind(name, InpIndicatorPrefix) != 0) continue;   // 前方一致しなければスキップ
+
+         if(name == g_indNameSeen && g_ind != INVALID_HANDLE)
+            return g_ind;   // ★同じインジのまま→再取得せず使い回す(ハンドルリーク防止)
+
+         int h = ChartIndicatorGet(0, w, name);
+         if(h != INVALID_HANDLE)
+         {
+            if(g_ind != INVALID_HANDLE && g_ind != h) IndicatorRelease(g_ind);   // 差し替わったら古い方を解放
+            Print("[Watchdog] 本体インジ検出: ", name, (g_indNameSeen=="") ? "" : (" (前回: "+g_indNameSeen+")"));
+            g_indNameSeen = name;
+            return h;
+         }
+      }
+   }
+   return INVALID_HANDLE;
+}
 datetime  g_stuckSince     = 0;             // ★EXIT継続なのに保有残存を最初に検知した時刻
 datetime  g_lastForceNotice= 0;             // ★決済指示の通知再送防止
 
@@ -77,9 +111,10 @@ datetime  g_lastForceNotice= 0;             // ★決済指示の通知再送防
 int OnInit()
 {
    EventSetTimer(InpCheckSec > 0 ? InpCheckSec : 10);
-   g_ind = iCustom(_Symbol, _Period, InpIndicatorName);   // ★EXIT/背景を読むための本体ハンドル
+   g_ind = FindDokaKotsuHandle();   // ★2026-07-08変更: バージョン番号を問わず自動検出
    CreateLabel(LBL_MAIN,   InpY,      InpFontSize, clrSilver, "DokaKotsu : starting...");
    CreateLabel(LBL_RESCUE, InpY + 22, InpFontSize, clrAqua,   "");   // ★救済表示(2行目)
+   CreateLabel(LBL_REASON, InpY + 44, InpFontSize, clrOrange, "");   // ★2026-07-08追加: 停止理由(3行目)
    Check();   // 即時1回
    return(INIT_SUCCEEDED);
 }
@@ -102,6 +137,7 @@ void OnDeinit(const int reason)
    if(g_ind != INVALID_HANDLE) IndicatorRelease(g_ind);
    ObjectDelete(0, LBL_MAIN);
    ObjectDelete(0, LBL_RESCUE);
+   ObjectDelete(0, LBL_REASON);
    ChartRedraw(0);
 }
 
@@ -149,6 +185,9 @@ string NowStamp()
 //+------------------------------------------------------------------+
 void Check()
 {
+   int foundInd = FindDokaKotsuHandle();   // ★2026-07-08変更: 毎回検出し直す(バージョン差し替えに追従・見つからなければ直前のハンドルを維持)
+   if(foundInd != INVALID_HANDLE) g_ind = foundInd;
+
    datetime now    = TimeCurrent();        // EA HB/理由の比較用(EA側もTimeCurrentで記録)
    datetime nowTrd = TimeTradeServer();    // ★市場開閉用:ティックが無い土日も進み続ける時計
    string   sym = (StringLen(InpWatchSymbol) > 0) ? InpWatchSymbol : _Symbol;
@@ -208,14 +247,16 @@ void Check()
    string ts   = NowStamp();
    string hbT  = (eaAge>=0) ? (AgeTxt(eaAge)+"前") : "—";
    string tail = " / EA心拍 "+hbT+" / 自動売買"+(tradeOk?"ON":"OFF")+" / 連携"+(linkOk?"OK":"NG");
-   color  c; string main;
+   color  c; string main; string reasonLine = "";
    if(eaDown)            { c=clrRed;    main = ts+"  🚨EA停止"+tail+" / EAを確認!"; }
    else if(stuck)        { c=clrRed;    main = ts+"  🚨EXIT継続なのに保有残存"+tail+(fire?" / 決済指示発令":" / 監視中(猶予)"); }
    else if(!marketOpen)  { c=clrSilver; main = ts+"  ⏸市場休場"+tail; }
    else if(reasonDown)   { c=clrOrange; main = ts+"  ⚠理由ログ停止"+tail; }
-   else if(rcode>0)      { c=clrOrange; main = ts+"  ⚠EA稼働(停止理由あり)"+tail+" / "+ReasonText(rcode,lstreak); }
+   else if(rcode>0)      { c=clrOrange; main = ts+"  ⚠EA稼働(停止理由あり)"+tail;
+                            reasonLine = "　→ "+ReasonText(rcode,lstreak); }   // ★2026-07-08変更: 1行目に詰め込まず専用行へ(画面幅で見切れ対策)
    else                  { c=clrLime;   main = ts+"  ✅EA正常稼働"+tail+" / 異常なし"; }
    SetLabel(LBL_MAIN, c, main);
+   SetLabel(LBL_REASON, clrOrange, reasonLine);   // ★2026-07-08追加: 空文字なら非表示(SetLabel/DrawWarnLine同様の挙動)
 
    // 決済指示を発令したらスマホ通知(5分再送防止)
    if(fire && (g_lastForceNotice==0 || (now-g_lastForceNotice)>=300))
