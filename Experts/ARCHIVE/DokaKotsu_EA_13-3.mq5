@@ -87,7 +87,7 @@ CTrade trade;
 
 //=== バージョン(最新確認用) =======================================
 #define EA_VERSION "v13.0"
-#define EA_BUILD   "2026-07-10b EA_13h / ★indicator_13(2026-07-10e)の相場状態(buf57,SQ/TR/SP)対応。reason CSVのreason列先頭に状態接頭辞([SQ]/[TR]/[SP])を必ず付与するMarketStateText()を追加し、どのブロック理由がどの状態の中で起きたことかを一目で判別できるようにした(取引ロジックへの影響なし・記録専用)。 / 2026-07-10 EA_13g / ★indicator_13(2026-07-10)のレジーム判定(buf53,reason40)・スパイクADX禁止(buf50-52,reason39)・後段フィルター影判定(buf54-56)への対応。①entry_snapshotのjudgmentにspike_adx_ban_active/trigger_area/bars_since(buf50-52)・regime(buf53)・shadow_wave/adx/zz(buf54-56)を追加。②reason CSVにshadow_wave/adx/zz(buf54-56)の3列を追加=reason40等の上流ブロックでその足の実判定が隠れていても、Wave(26/27/28)・ADX継続性(29/36)・ZigZag(35)がその時点で通過/ブロックのどちらだったか常に記録できるようにした。③ReasonTextにreason39/40のケースを追加(未登録のため従来「(未評価)」表示になっていたバグを修正)。いずれも取引ロジックには一切影響しない記録専用。 / 2026-07-09e EA_13f / ★「勘に頼らない敗因分析」残項目を一括追加。judgment: cooldown_left(buf44)/wma_slope_dist(buf45)/long_slope_smoothed・long_slope_dist(buf46/47)。context: wave_fast_raw・wave_slow_raw(buf48/49)、day_of_week・hour_jst(JST基準)、mins_to_next_event・mins_since_last_event(CalendarValueHistoryを直接照会、DokaKotsu_US_CalendarのJSONには依存しない独立取得)。GetNewsMinutes()新設。判定ロジックへの影響なし。 / 2026-07-09d EA_13e / ★entry_snapshotのjudgmentにspike_area_last(buf42)/spike_bars_since(buf43)を追加。spike_area(buf41)は確定した1本の足でしか値が立たない単発パルスのため、エントリーとほぼ噛み合わず相関が見えなかった。保持型の値と経過本数を追加し「何本前にどれくらいのスパイクがあったか」を分析できるようにした(判定ロジックへの影響なし)。 / 2026-07-09c EA_13d / ★entry_snapshotのjudgmentにspike_area(buf41)を追加。exit側resultには既にspike_areaがあり非対称だったため、エントリー直前のスパイク局面も記録できるようにした(判定ロジックへの影響なし・記録項目の追加のみ)。 / 2026-07-09b EA_13c / ★スパイク(33)・ウェーブクロス救済(34)を段階決済/トレーリング中でも常に最優先で即決済するよう修正。従来は段階決済モード(stagedMA)に入ると、その中の平均足反転/MA転換/MAグレー判定しか見ておらず、インジ側がスパイクを検知していても無視されていた(=「最優先」という設計意図とEAの実装がズレていた)。EXIT分岐の一番先頭でrc==33/34を早期リターンする形にして解消。300以上の面積はほとんど出現しない前提のため、各モードとの共存ロジックは作らず単純な最優先分岐にしている。 / 2026-07-09 EA_13b / ★スパイク決済(indicator_13が2026-07-08導入)のラベル漏れを修正: 通常モードEXIT分岐がrc==33(スパイク面積)/34(ウェーブクロス救済)を認識せず「決済(✖)」+g_lastExitMethod=30に誤ラベルしていたのを解消(実際の決済注文自体は変更なし、記録の正確性のみ修正)。result_snapshotに exit_method(30-34の実際の決済方式)と spike_area(indicator buf41、スイング確定時の面積実測値。閾値300未達の不発分も含む)を追加。 / 2026-07-07 EA_13 / ★entry/result JSONスナップショット追加(InpLogSnapshot,既定true)。参照先=DokaKotsu_indicator_13。エントリー成功時にjudgment(判定に使った値)+context(indicator buf28-40の未使用ロジック探索用データ)をentry_<magic>_<time>.jsonへ、決済成立時にresult(pips/勝敗/保有時間/MFE/MAE/RR実績)をresult_YYYYMMDD.jsonlへ1行追記。いずれも取引ロジックには一切影響しない記録専用(WriteEntrySnapshot/WriteResultSnapshot,保存先=InpReasonDir配下)。MAE追跡をUpdateMFEに追加(g_peakPipMAE)。 / 2026-07-06 EA_12 / ★米国休日バグ修正: 週末(土/日)付けの祝日エントリーをRefreshUSHolidayでスキップするよう変更(day_of_week==0/6を無視)。実例2026-07-06:独立記念日が金曜(観測日)と土曜(実日付)の重複登録で、土曜側がJST変換後に翌週月曜と誤一致し平日なのに米国休日停止が誤発動していた問題に対応。スキップ発生時は1回だけPrintで確認ログ出力 / 参照先=DokaKotsu_indicator_12 / 理由テキストにreason29(ADXグレー,indicator_11で導入済みだったが漏れていた分)・35(ZigZag弱波)・36(ADX継続未達)を追加 / CSVにadx(buf26)・zigzag(buf27)列を追加 / ★イベント予防線にISM追加(EV_ISM,ClassifyEvent/DK_StopReasonCode=11)。重要度フィルターをHIGHのみ→MODERATE+に緩和(表示側DokaKotsu_US_Calendarと統一。ISMはMODERATE分類のため従来HIGHのみでは検出不可だった)。時間窓はInpCpiNfpHoursBeforeを流用。判定ロジックはインジ側のまま変更なし / 2026-06-20 EA_9 / 参照先=DokaKotsu_indicator_9(Ver8.0) / MT5カレンダー(CPI/NFP/FOMC)+米国休日+年末年始 / 停止理由GV出力 / M15状態(buf13)読取+リーズンに15分足列 / 連敗ロット+自動復活 / ドテン廃止 / 2026-06-22:日次pip停止(InpMaxDayLossPip)+復活で基準リセット+チャート3行警告 / 2026-06-22:平均足色列(buf14)+決済理由細分化(30/31/32)+出来高(21) / 2026-06-23:損切り再決済(✖再送+広スリッページ)+緊急逆行ストップ(任意・既定OFF)+救済GV(Watchdog表示) / 2026-06-23:段階決済(含み益トリガーで平均足→MA切替)+15分グレー予備決済 / 2026-06-24:v8.3 インジ長期足(MTF3本パーフェクトオーダー門番,reason22)対応・理由テキスト追加 / 2026-06-24:v9.0 ファイル名/版を8→9統一(インジと同番号)・参照先=DokaKotsu_indicator_9・案Aで15分グレー予備決済OFF(InpExitOnM15Gray=false)・CSVに長期足状態列(buf15読取)追加 / 2026-06-28:EA_10 参照先=DokaKotsu_indicator_10・理由テキストに24/25/26を追加(24=フラッシュ回避,25=長期が後発,26=Wave未反転)。判定はインジ側のまま(EAは実行+リスク管理+決済再送)。#property versionを10.00に整合 / 2026-06-30:段階決済をbuf25(背景方向)自力判断に改良(反転=31/グレー連続InpStagedGrayBars=32。インジ理由32待ちの詰まりを解消)・ウォッチドッグ決済指示GV(DK_WD_EXITREQ)受信→即決済+再送(手法33)・自動売買/連携状態GV(DK_EA_TRADEOK/LINKOK)出力・決済手法をCSVリーズン末尾に保持表示(30平均足/31MA転換/32MAグレー/33WD,次エントリーまで) / 2026-07-01:再突入抑制(2発目キラー)=21時前(NY時間外,夏21/冬22)にMAグレー決済したら同方向を背景(確定足)再点灯InpRelightBars本までロック・NY時間は無効/解除・CSVリーズン末尾にATR(14)pipを全行記録(ボラ実証データ用) / 2026-07-02:トレーリングストップ=段階決済(含み益100pip超)中にピーク利益(MFE)のInpTrailGiveback(25%)を吐き出したら発動し平均足決済モードへ切替(平均足反転30で決済=決済(平均足反転/TS))。ea_note列に トレーリングストップ発動/決済OK(平均足反転/TS) を記録 / 2026-07-03:米国休日判定をチャート表示側(DokaKotsu_US_Calendar.mq5)と連携。RefreshUSHolidayが本日分(時刻問わず)の祝日検出+開始/終了時刻をGV出力(DK_EA_USHOL_ACTIVE/TODAY/START/END_<magic>)。表示側はDK_EA_HB心拍の鮮度でEA生存を確認しGV値をそのまま表示=WYSIWYG / 2026-07-03:InpUSHolStopHourJST既定値を18→14に変更(米国休日の新規停止開始をJST14時からに前倒し) / 2026-07-06:EA_11 インジ名称変更(DokaKotsu_indicator_10→DokaKotsu_indicator_11)に伴いEA側の参照名・ファイル名・バージョン表記を11に統一整合(判定ロジックはインジ側のまま変更なし)"
+#define EA_BUILD   "2026-07-07 EA_13 / ★entry/result JSONスナップショット追加(InpLogSnapshot,既定true)。参照先=DokaKotsu_indicator_13。エントリー成功時にjudgment(判定に使った値)+context(indicator buf28-40の未使用ロジック探索用データ)をentry_<magic>_<time>.jsonへ、決済成立時にresult(pips/勝敗/保有時間/MFE/MAE/RR実績)をresult_YYYYMMDD.jsonlへ1行追記。いずれも取引ロジックには一切影響しない記録専用(WriteEntrySnapshot/WriteResultSnapshot,保存先=InpReasonDir配下)。MAE追跡をUpdateMFEに追加(g_peakPipMAE)。 / 2026-07-06 EA_12 / ★米国休日バグ修正: 週末(土/日)付けの祝日エントリーをRefreshUSHolidayでスキップするよう変更(day_of_week==0/6を無視)。実例2026-07-06:独立記念日が金曜(観測日)と土曜(実日付)の重複登録で、土曜側がJST変換後に翌週月曜と誤一致し平日なのに米国休日停止が誤発動していた問題に対応。スキップ発生時は1回だけPrintで確認ログ出力 / 参照先=DokaKotsu_indicator_12 / 理由テキストにreason29(ADXグレー,indicator_11で導入済みだったが漏れていた分)・35(ZigZag弱波)・36(ADX継続未達)を追加 / CSVにadx(buf26)・zigzag(buf27)列を追加 / ★イベント予防線にISM追加(EV_ISM,ClassifyEvent/DK_StopReasonCode=11)。重要度フィルターをHIGHのみ→MODERATE+に緩和(表示側DokaKotsu_US_Calendarと統一。ISMはMODERATE分類のため従来HIGHのみでは検出不可だった)。時間窓はInpCpiNfpHoursBeforeを流用。判定ロジックはインジ側のまま変更なし / 2026-06-20 EA_9 / 参照先=DokaKotsu_indicator_9(Ver8.0) / MT5カレンダー(CPI/NFP/FOMC)+米国休日+年末年始 / 停止理由GV出力 / M15状態(buf13)読取+リーズンに15分足列 / 連敗ロット+自動復活 / ドテン廃止 / 2026-06-22:日次pip停止(InpMaxDayLossPip)+復活で基準リセット+チャート3行警告 / 2026-06-22:平均足色列(buf14)+決済理由細分化(30/31/32)+出来高(21) / 2026-06-23:損切り再決済(✖再送+広スリッページ)+緊急逆行ストップ(任意・既定OFF)+救済GV(Watchdog表示) / 2026-06-23:段階決済(含み益トリガーで平均足→MA切替)+15分グレー予備決済 / 2026-06-24:v8.3 インジ長期足(MTF3本パーフェクトオーダー門番,reason22)対応・理由テキスト追加 / 2026-06-24:v9.0 ファイル名/版を8→9統一(インジと同番号)・参照先=DokaKotsu_indicator_9・案Aで15分グレー予備決済OFF(InpExitOnM15Gray=false)・CSVに長期足状態列(buf15読取)追加 / 2026-06-28:EA_10 参照先=DokaKotsu_indicator_10・理由テキストに24/25/26を追加(24=フラッシュ回避,25=長期が後発,26=Wave未反転)。判定はインジ側のまま(EAは実行+リスク管理+決済再送)。#property versionを10.00に整合 / 2026-06-30:段階決済をbuf25(背景方向)自力判断に改良(反転=31/グレー連続InpStagedGrayBars=32。インジ理由32待ちの詰まりを解消)・ウォッチドッグ決済指示GV(DK_WD_EXITREQ)受信→即決済+再送(手法33)・自動売買/連携状態GV(DK_EA_TRADEOK/LINKOK)出力・決済手法をCSVリーズン末尾に保持表示(30平均足/31MA転換/32MAグレー/33WD,次エントリーまで) / 2026-07-01:再突入抑制(2発目キラー)=21時前(NY時間外,夏21/冬22)にMAグレー決済したら同方向を背景(確定足)再点灯InpRelightBars本までロック・NY時間は無効/解除・CSVリーズン末尾にATR(14)pipを全行記録(ボラ実証データ用) / 2026-07-02:トレーリングストップ=段階決済(含み益100pip超)中にピーク利益(MFE)のInpTrailGiveback(25%)を吐き出したら発動し平均足決済モードへ切替(平均足反転30で決済=決済(平均足反転/TS))。ea_note列に トレーリングストップ発動/決済OK(平均足反転/TS) を記録 / 2026-07-03:米国休日判定をチャート表示側(DokaKotsu_US_Calendar.mq5)と連携。RefreshUSHolidayが本日分(時刻問わず)の祝日検出+開始/終了時刻をGV出力(DK_EA_USHOL_ACTIVE/TODAY/START/END_<magic>)。表示側はDK_EA_HB心拍の鮮度でEA生存を確認しGV値をそのまま表示=WYSIWYG / 2026-07-03:InpUSHolStopHourJST既定値を18→14に変更(米国休日の新規停止開始をJST14時からに前倒し) / 2026-07-06:EA_11 インジ名称変更(DokaKotsu_indicator_10→DokaKotsu_indicator_11)に伴いEA側の参照名・ファイル名・バージョン表記を11に統一整合(判定ロジックはインジ側のまま変更なし)"
 #define RESUME_BTN  "DK_ResumeBtn"   // ★連敗手動復活ボタンのオブジェクト名
 #define RESUME_TXT  "DK_ResumeTxt"   // ★状態テキスト(警告/停止中)のオブジェクト名
 #define WARN_TXT2   "DK_WarnTxt2"    // ★2026-06-22 3行警告の2行目(連敗)
@@ -1594,21 +1594,7 @@ void OnTick()
       bool stagedMA = (InpUseStagedExit && g_peakPipMFE >= InpStagedTrigPips); // トリガー到達→MAモードへラッチ
       int  wantDir  = (pos > 0) ? 1 : -1;                              // 保有方向
 
-      // ★2026-07-09追加: スパイク面積決済(33)・ウェーブクロス救済(34)は「最優先」を文字通り実装。
-      //   段階決済(stagedMA)・トレーリング発動後(g_trailArmed)であっても、このチェックが
-      //   常に一番先に効くようにする(=それらのモードの中身を一切見ない)。
-      //   300以上の面積はほとんど出現しない前提なので、各モードとの共存ロジックは作らず
-      //   単純な最優先の早期リターン方式にしている(スパイクが出た時ほど効果が大きいため)。
-      int rcTop = ReadReason(0);
-      if(sExit && (rcTop==33 || rcTop==34))
-      {
-         string whyTop = (rcTop==33) ? "決済(スパイク面積)" : "決済(ウェーブクロス救済)";
-         CommandExit(1, whyTop);
-         g_lastExitMethod = rcTop;
-         LogReason(curBar, "決済OK(スパイク最優先)");
-         pos = CurrentPos(tk);
-      }
-      else if(InpExitOnM15Gray && ReadM15State(1) == 0)                     // (予備)15分足グレー(確定足)で決済
+      if(InpExitOnM15Gray && ReadM15State(1) == 0)                     // (予備)15分足グレー(確定足)で決済
       {
          CommandExit(1, "決済(15分グレー)");
          g_lastExitMethod = 32;
@@ -1674,17 +1660,11 @@ void OnTick()
       }
       else if(sExit)                                  // 通常モード(<トリガー): インジEXIT(平均足30含む)で即決済
       {
-         int rc = ReadReason(0);                      // 30=平均足 / 31=MA転換 / 32=グレーアウト / 33=スパイク面積 / 34=ウェーブクロス救済
-         // ★2026-07-09修正: rc==33(スパイク面積決済)・34(ウェーブクロス救済)がここに来ると
-         //   従来は無条件で"決済(✖)"+g_lastExitMethod=30(平均足)に誤ラベルされていた
-         //   (インジ側で2026-07-08に33/34を新設した際、EA側の対応漏れ)。
-         //   実際の決済(CommandExit(1,...)で送る注文)自体は変わらないが、
-         //   理由テキスト/exit_methodが正しくないとresult_snapshotでの「スパイクが効いたか」検証ができないため追加。
+         int rc = ReadReason(0);                      // 30=平均足 / 31=MA転換 / 32=グレーアウト
          string why = (rc==31) ? "決済(MA転換)" : (rc==32) ? "決済(グレーアウト)"
-                    : (rc==30) ? "決済(平均足)" : (rc==33) ? "決済(スパイク面積)"
-                    : (rc==34) ? "決済(ウェーブクロス救済)" : "決済(✖)";
+                    : (rc==30) ? "決済(平均足)" : "決済(✖)";
          CommandExit(1, why);                         // ★保有が消えるまで広スリッページで再送
-         g_lastExitMethod = (rc>=30 && rc<=34) ? rc : 30;
+         g_lastExitMethod = (rc>=30 && rc<=32) ? rc : 30;
          if(g_lastExitMethod==32 && IsReentryFilterActive()) g_reentryLockDir = wantDir;   // ★21時前: MAグレー決済で同方向ロック
          LogReason(curBar, "決済OK");
          pos = CurrentPos(tk);
@@ -1821,9 +1801,6 @@ string ReasonText(int code)
       case 33: return "決済(スパイク面積)";                      // ★2026-07-08追加(indicator_13)
       case 34: return "決済(ウェーブクロス救済)";                 // ★2026-07-08追加(indicator_13)
       case 37: return "スパイク後エントリー禁止(平均足待ち)";      // ★2026-07-08追加(indicator_13)
-      case 38: return "RSIフィルター(買われすぎ/売られすぎ)";      // ★2026-07-09追加(indicator_13)
-      case 39: return "スパイクADX禁止(ADX変化待ち)";             // ★2026-07-10追加(indicator_13): これまでEA側に表記が無く「(未評価)」表示になっていたのを修正
-      case 40: return "スクイーズ中(長期/M15非グレー待ち)";        // ★2026-07-10追加(indicator_13): 同上
       default: return "(未評価)";
    }
 }
@@ -1853,14 +1830,6 @@ void LogReason(datetime bt, string note)
    WriteReasonRow(bt, ReadReason(0), pos, 0, (int)IsInStopTime(), note);
 }
 
-//--- ★2026-07-10e追加: 相場状態(buf57) → 表示文字([SQ]/[TR]/[SP])。reason列の先頭に必ず付ける。
-string MarketStateText(int s)
-{
-   if(s == 1) return "[SQ]";
-   if(s == 3) return "[SP]";
-   return "[TR]"; // 既定=2、未計算(0)もTR扱いで表示上の空白事故を避ける
-}
-
 //+------------------------------------------------------------------+
 //| 理由を1行CSVに追記(日付ごとにファイル分割)                      |
 //|   保存先: MQL5\Files\<InpReasonDir>\reason_YYYYMMDD.csv          |
@@ -1884,57 +1853,17 @@ void WriteReasonRow(datetime bt, int code, int pos, int cd, int tf, string eaNot
    }
    FileSeek(h, 0, SEEK_END);
    if(isNew)
-      FileWrite(h, "time","dir","code","ha","long","m15","adx","zigzag","reason","ea_note","pos","cooldown","time_filter","order_err","shadow_wave","shadow_adx","shadow_zz");
-   // ★2026-07-10e追加: reason列の先頭に相場状態([SQ]/[TR]/[SP],buf57)を必ず付与。
-   //   どのブロック理由(M15不一致でもZigZagでも何でも)が、どの状態の中で起きたことかを一目で判別できるようにする。
-   string reasonTxt = MarketStateText((int)ReadBufRaw(57,0)) + " " +
-      (g_lastExitMethod!=0 ? ReasonText(code)+" [直近決済:"+ExitMethodText(g_lastExitMethod)+"]" : ReasonText(code)) + StringFormat(" [ATR:%.1fpip]", AtrPips(1));
+      FileWrite(h, "time","dir","code","ha","long","m15","adx","zigzag","reason","ea_note","pos","cooldown","time_filter","order_err");
    FileWrite(h,
       TimeToString(btJst, TIME_DATE|TIME_MINUTES),
       ReasonDir(code), code, HaStateText(ReadHaState(0)), LongStateText(ReadLongState(0)), M15StateText(ReadM15State(0)),
       AdxStateText(ReadAdxState(0)), StringFormat("%.1f", ReadZzStrength(0)),
-      reasonTxt, eaNote,
-      pos, cd, tf, g_lastOrderErr,
-      // ★2026-07-10d追加: 後段フィルター(Wave/ADX継続性/ZigZag)の影の判定(buf54-56)。
-      //   上流(reason40/37/39等)でその足の実際の判定がブロックされていても、これらは常に
-      //   その時点の後段フィルター結果(0=ブロックなし相当/26-28/29/36/35)を記録する。判定には未使用の観測専用。
-      (int)ReadBufRaw(54,0), (int)ReadBufRaw(55,0), (int)ReadBufRaw(56,0));
+      (g_lastExitMethod!=0 ? ReasonText(code)+" [直近決済:"+ExitMethodText(g_lastExitMethod)+"]" : ReasonText(code)) + StringFormat(" [ATR:%.1fpip]", AtrPips(1)), eaNote,
+      pos, cd, tf, g_lastOrderErr);
    FileClose(h);
    // ★理由CSVを実際に書けた時刻をGVへ(watchdogの「reasonログ」健全性判定に使用)
    if(InpHeartbeat)
       GlobalVariableSet(StringFormat("DK_EA_LASTREASON_%d", InpMagic), (double)TimeCurrent());
-}
-
-//+------------------------------------------------------------------+
-//| ★2026-07-09追加: 直近の米国重要指標(MODERATE以上)までの分数を計算  |
-//|   MT5のCalendarValueHistoryを直接照会する(DokaKotsu_US_Calendarが  |
-//|   書き出すJSONには依存しない)。判定には未使用・記録専用。          |
-//|   見つからなければ-1のまま返す。                                  |
-//+------------------------------------------------------------------+
-void GetNewsMinutes(int &minsToNext, int &minsSinceLast)
-{
-   minsToNext = -1; minsSinceLast = -1;
-   datetime now  = TimeCurrent();
-   datetime from = now - 3*86400;
-   datetime to   = now + 3*86400;
-
-   MqlCalendarValue values[];
-   int count = CalendarValueHistory(values, from, to, "US");
-   if(count <= 0) return;
-
-   datetime bestFuture = 0, bestPast = 0;
-   for(int i=0; i<count; i++)
-   {
-      MqlCalendarEvent ev;
-      if(!CalendarEventById(values[i].event_id, ev)) continue;
-      if(ev.importance < CALENDAR_IMPORTANCE_MODERATE) continue;
-
-      datetime t = values[i].time;
-      if(t >= now && (bestFuture==0 || t < bestFuture)) bestFuture = t;
-      if(t <  now && (bestPast==0   || t > bestPast))   bestPast   = t;
-   }
-   if(bestFuture > 0) minsToNext    = (int)((bestFuture - now) / 60);
-   if(bestPast   > 0) minsSinceLast = (int)((now - bestPast) / 60);
 }
 
 //+------------------------------------------------------------------+
@@ -1953,53 +1882,22 @@ void WriteEntrySnapshot(int dir)
    FileSeek(h, 0, SEEK_END);
 
    // judgment: 実際の判定に使われた値(reason29/22/25等のゲート判定の元データ)
-   // ★2026-07-09追加: spike_area(buf41)は単発パルスのためエントリーとほぼ噛み合わない。
-   //   保持型のspike_area_last(buf42)/spike_bars_since(buf43,未観測=-1)を追加し、
-   //   「何本前にどれくらいのスパイクがあったか」を分析できるようにした。
-   // ★2026-07-10追加: spike_adx_ban_*(buf50-52,reason39用)・regime(buf53,reason40用)。
-   // ★2026-07-10d追加: shadow_wave/shadow_adx/shadow_zz(buf54-56)。上流(reason40/37/39等)で
-   //   ブロックされていても、Wave(26/27/28)・ADX継続性(29/36)・ZigZag(35)がその足で実際は
-   //   通過/ブロックのどちらだったかを常に記録(0=ブロックなし相当)。判定には未使用の観測専用。
    string judgment = StringFormat(
       "{\"reason\":%d,\"ha\":%d,\"long\":%d,\"m15\":%d,\"adx\":%d,\"zigzag\":%.1f,"
-      "\"wave_val\":%.4f,\"wave_sig\":%.4f,\"ma_slope\":%.4f,\"spike_area\":%.1f,"
-      "\"spike_area_last\":%.1f,\"spike_bars_since\":%.0f,\"cooldown_left\":%.0f,"
-      "\"wma_slope_dist\":%.4f,\"long_slope_smoothed\":%.4f,\"long_slope_dist\":%.4f,"
-      "\"spike_adx_ban_active\":%d,\"spike_adx_ban_trigger_area\":%.1f,\"spike_adx_ban_bars_since\":%.0f,"
-      "\"regime\":%d,\"shadow_wave\":%d,\"shadow_adx\":%d,\"shadow_zz\":%d}",
+      "\"wave_val\":%.4f,\"wave_sig\":%.4f,\"ma_slope\":%.4f}",
       ReadReason(0), ReadHaState(0), ReadLongState(0), ReadM15State(0), ReadAdxState(0), ReadZzStrength(0),
-      ReadBufRaw(20,0), ReadBufRaw(21,0), ReadBufRaw(35,0), ReadBufRaw(41,0),
-      ReadBufRaw(42,0), ReadBufRaw(43,0,-1.0), ReadBufRaw(44,0),
-      ReadBufRaw(45,0), ReadBufRaw(46,0), ReadBufRaw(47,0),
-      (int)ReadBufRaw(50,0), ReadBufRaw(51,0), ReadBufRaw(52,0,-1.0),
-      (int)ReadBufRaw(53,0), (int)ReadBufRaw(54,0), (int)ReadBufRaw(55,0), (int)ReadBufRaw(56,0));
+      ReadBufRaw(20,0), ReadBufRaw(21,0), ReadBufRaw(35,0));
 
-   // context: buf28-40,48-49。判定には未使用・将来の効果検証用(RSI/MACD/GMMA代理/EMA乖離/高安値更新/レンジ幅/前日高安値/Wave生値)
-   // ★2026-07-09追加: day_of_week/hour_jst(JST基準)、mins_to_next_event/mins_since_last_event(米国MODERATE+指標)
-   int dowJst=0, hourJst=0;
-   { // ★JST変換(WriteReasonRowと同じ方式)。ブロックスコープで完結させ変数名の衝突を避ける
-      int jstOff = IsSummerTime(now) ? InpJstOffSummer : InpJstOffWinter;
-      datetime nowJst = now + jstOff*3600;
-      MqlDateTime dtJst; TimeToStruct(nowJst, dtJst);
-      dowJst = dtJst.day_of_week; hourJst = dtJst.hour;
-   }
-   int minsToNextEv=-1, minsSinceLastEv=-1;
-   GetNewsMinutes(minsToNextEv, minsSinceLastEv);
-
+   // context: buf28-40。判定には未使用・将来の効果検証用(RSI/MACD/GMMA代理/EMA乖離/高安値更新/レンジ幅/前日高安値)
    string context = StringFormat(
       "{\"rsi\":%.2f,\"macd_main\":%.4f,\"macd_signal\":%.4f,\"macd_hist\":%.4f,"
       "\"gmma_short_angle\":%.4f,\"gmma_long_angle\":%.4f,\"ema_dist\":%.4f,"
       "\"high_update\":%d,\"low_update\":%d,\"range_width_atr\":%.2f,"
-      "\"prev_day_high\":%.2f,\"prev_day_low\":%.2f,\"atr_pip\":%.1f,"
-      "\"wave_fast_raw\":%.2f,\"wave_slow_raw\":%.2f,"
-      "\"day_of_week\":%d,\"hour_jst\":%d,"
-      "\"mins_to_next_event\":%d,\"mins_since_last_event\":%d}",
+      "\"prev_day_high\":%.2f,\"prev_day_low\":%.2f,\"atr_pip\":%.1f}",
       ReadBufRaw(28,0), ReadBufRaw(29,0), ReadBufRaw(30,0), ReadBufRaw(31,0),
       ReadBufRaw(32,0), ReadBufRaw(33,0), ReadBufRaw(34,0),
       (int)ReadBufRaw(36,0), (int)ReadBufRaw(37,0), ReadBufRaw(38,0),
-      ReadBufRaw(39,0), ReadBufRaw(40,0), AtrPips(1),
-      ReadBufRaw(48,0), ReadBufRaw(49,0),
-      dowJst, hourJst, minsToNextEv, minsSinceLastEv);
+      ReadBufRaw(39,0), ReadBufRaw(40,0), AtrPips(1));
 
    string json = StringFormat(
       "{\"time\":\"%s\",\"dir\":\"%s\",\"magic\":%d,\"judgment\":%s,\"context\":%s}",
@@ -2031,11 +1929,9 @@ void WriteResultSnapshot(double pips, int exitKind, const string why)
    string json = StringFormat(
       "{\"time\":\"%s\",\"magic\":%d,\"dir\":\"%s\",\"pips\":%.1f,\"is_win\":%s,"
       "\"hold_sec\":%d,\"mfe_pips\":%.1f,\"mae_pips\":%.1f,"
-      "\"risk_pips\":%.1f,\"rr_actual\":%.2f,\"exit_kind\":%d,\"exit_why\":\"%s\","
-      "\"exit_method\":%d,\"spike_area\":%.1f}",
+      "\"risk_pips\":%.1f,\"rr_actual\":%.2f,\"exit_kind\":%d,\"exit_why\":\"%s\"}",
       TimeToString(now, TIME_DATE|TIME_SECONDS), InpMagic, dir, pips, (pips>0.0?"true":"false"),
-      holdSec, g_peakPipMFE, g_peakPipMAE, g_posRiskPips, rrActual, exitKind, why,
-      g_lastExitMethod, ReadBufRaw(41, 0));
+      holdSec, g_peakPipMFE, g_peakPipMAE, g_posRiskPips, rrActual, exitKind, why);
 
    FileWriteString(h, json + "\n");
    FileClose(h);
