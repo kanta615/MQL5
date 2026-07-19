@@ -3,138 +3,6 @@
 //|  dokakotu_dashboard_v8_4.html のデザインをMT5チャート上に         |
 //|  再現するパネル（第一段階：機能なし・表示のみ／固定サンプル値）   |
 //|                                                                    |
-//|  ■ 修正日: 2026-07-16  修正内容                                  |
-//|    ①ボラティリティの閾値初期値を変更: グレー境界29(旧22)/         |
-//|      イエロー境界36(旧40)。                                      |
-//|    ②「決済目安」メーターに実ロジックを実装(案②採用)。0%=エント   |
-//|      リー直後/InpMeterStagedPct%(既定65)=含み益がInpStagedTrig   |
-//|      PipsMirror(既定100、EA_15のInpStagedTrigPipsと同じ値にする   |
-//|      必要あり)に到達=段階決済モードへ切替/100%=実際の決済。       |
-//|      節目到達後(トレーリング監視中)はそれ以上の進捗を正確には      |
-//|      予測できないため、節目〜100%の中間で固定表示する(誇張しない  |
-//|      設計)。保有していない間は、直近決済が新しければ100%のまま    |
-//|      (次のエントリーまで、GET/LOSEメッセージと同じGVで判定)、     |
-//|      無ければ0%。GetOpenPositionProfitPips()新設。                |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(8回目)  修正内容(indicator/EA 14→15対応確認) |
-//|    indicator/EAを14→15へバージョンアップしたのに伴う確認。          |
-//|    本ファイルのFindDokaKotsuHandle()は接頭辞"DokaKotsu_indicator_" |
-//|    でチャート上を走査する設計(InpIndicatorPrefix)のため、バージョン|
-//|    番号を問わず自動検出される。コード変更は不要(念のため確認のみ)。|
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(7回目)  修正内容                            |
-//|    ①「稼働中」→「EA稼働中」に文言変更。約1.6秒周期でゆっくり      |
-//|      点滅するように変更(GetTickCount()の位相だけを見て背景色に    |
-//|      落とす方式。専用タイマーは追加せず既存の1秒更新のまま=負荷    |
-//|      増加なし)。取引停止中(赤)側は点滅させていない。               |
-//|    ②「決済目安」の3ラベルを「圧縮/閾0.30/ボラあり」から            |
-//|      「エントリー/50%/決済」に変更。                              |
-//|    ③「本日の経済指標」見出しのフォントサイズを6→7に変更し、        |
-//|      「決済目安」見出しと同じサイズに統一。                        |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(6回目)  修正内容                            |
-//|    ①再生ボタンの「▶」が文字化けする(環境依存でtofu表示になる)ため |
-//|      ASCIIの">"に変更。フォントサイズも13へ調整。                 |
-//|    ②(ボタン中央揃え)MQL5のOBJ_BUTTONはテキストを自動で中央寄せ    |
-//|      する仕様のため、個別の水平/垂直揃えプロパティは存在しない。   |
-//|      ①の文字化け解消とフォント調整で見た目の改善を図った。         |
-//|    ③「▶稼働中」表記は前回(5回目)修正で既に「稼働中」化済み        |
-//|      (今回変更なし、念のため確認)。                               |
-//|    ②(アニメーション停止・負荷対策)ボラティリティバーの波形と       |
-//|      レインボーバーのシマー演出、両方ともGetTickCount()による      |
-//|      常時アニメーションを廃止し、固定値(t=0.0/shimmerT=0.5)による |
-//|      静止表示に変更。あわせて、アニメーションを滑らかにするためだけに|
-//|      150msへ短縮していたタイマー間隔を1000msへ戻し、負荷を軽減した。|
-//|    ③「WAIT Ready IN」行と「決済目安」の間が詰まっていたため        |
-//|      空白1行分のスペースを追加。                                  |
-//|    ④メッセージ箱(GET/LOSE/IN)のテキストをANCHOR_CENTERで箱の       |
-//|      水平・垂直中央に配置するよう変更。                            |
-//|    ⑤ボラティリティのグレー境界値(InpAdxVolLow)を20→22に変更。      |
-//|    ⑥「DR」の左の★の数の閾値を変更: 400以下=★/1000以下=★★/       |
-//|      1000超=★★★(旧150/300から変更、境界も<から<=に修正)。       |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(5回目)  修正内容                            |
-//|    ①■/▶ボタンを1.5倍に拡大(20px→30px)。CreateButtonObjにフォント |
-//|      サイズ引数を追加し、拡大しても▶/■の記号が小さいままになら   |
-//|      ないよう文字も一緒に大きくした(11pt)。収まるようlotboxHも    |
-//|      28→38に拡大。                                                |
-//|    ②「▶稼働中」「■取引停止中」の先頭アイコンを削除し「稼働中」   |
-//|      「取引停止中」に変更。                                       |
-//|    ②(レイヤー)CreateRectLabelにOBJPROP_FILL=trueを追加。MT5では   |
-//|      環境によりOBJPROP_BGCOLORだけでは実際に塗りつぶされず、       |
-//|      背後のチャートオブジェクトが透けて見える既知の不具合がある   |
-//|      ため、明示的にFILLを有効化する対策を追加(MQL5公式フォーラム  |
-//|      の複数の報告に基づく)。                                      |
-//|    ③「INしました」等のテキストを30%縮小(フォント14→10)。          |
-//|    ④GET/LOSEメッセージの自動消去(InpMsgFreshSec、旧180秒)を廃止。 |
-//|      次のエントリー(IN)が発生するまでずっと表示し続けるよう変更。 |
-//|    ⑤ボラティリティの閾値初期値を変更: グレー境界20(旧1.6)/        |
-//|      イエロー境界40(旧2.0)/レッド境界80(旧50)。                   |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(4回目)  修正内容                            |
-//|    ①「0.1 Lot」表示を■(取引停止)/▶(復活)ボタンに置き換え。        |
-//|      クリックするとGlobalVariable DK_DASH_TRADEPAUSE_<magic>へ     |
-//|      1(停止)/0(復活)を書き込む(OnChartEvent新設)。EA_14側に       |
-//|      IsDashboardPaused()を追加し、新規エントリーの可否判定に       |
-//|      組み込んだ(対で修正。保有中ポジションの強制決済はしない)。    |
-//|    ②ボラティリティ見出しの右横に現在のADX実測値(buf60)を表示      |
-//|      (「ADX 1.6」のように)。閾値調整の目安に使える。               |
-//|    ③「INしました」等のメッセージ箱の高さ・フォントを約3倍に拡大   |
-//|      (18px→54px、フォント8→14)。                                  |
-//|    ④「INしました」ブロックと「決済目安」ブロックの表示順を入替    |
-//|      (決済目安を先に表示するよう変更)。                            |
-//|    ⑤ボラティリティのライム/レッド境界値(InpAdxVolHigh)の初期値を   |
-//|      3.5→50に変更(実測のADX値に合わせて調整)。                    |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(3回目)  修正内容                            |
-//|    ①「Label」誤表示の真因を修正: entrypct削除だけでは直らず、      |
-//|      実際の原因は⑥連勝／獲得pips行(gamestreak/gamepips)が         |
-//|      streakTxt/pipsTxt空文字のまま常時描画されていたことだった。   |
-//|      空の時はテキストを背景色(COL_BG)にして見えなくする安全策を   |
-//|      追加。同じ理由でwavewarn(警告なし時)・legendtxtも背景色に統一。|
-//|    ②レイヤー問題再修正: OBJPROP_ZORDERを9000台→1億台へさらに      |
-//|      引き上げ。indicator_14のSQ/TR/SPラベルはOBJ_TEXT(価格面     |
-//|      アンカー)、パネル側はOBJ_LABEL(画面コーナーアンカー)で        |
-//|      本来レイヤーが異なるはずだが、実機で解消しなかったため        |
-//|      z-orderの数値をさらに大きく確保する対策で対応。               |
-//|    ③「本日の経済指標」の各イベント行(重要発言PPI等)のフォント     |
-//|      サイズを11→8に縮小。                                        |
-//|    ④右上バッジの文言を「US_Calendar _連携中」「US_Calendar_未連携」|
-//|      に変更(前回の「_US_Calendar連携中」から表記修正)。            |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(2回目)  修正内容                            |
-//|    ①「本日の経済指標」見出しのフォントサイズを7→6に縮小。         |
-//|    ②パネル全オブジェクトのOBJPROP_ZORDERを1000〜1003台から         |
-//|      9000〜9600台へ大幅引き上げ。他インジ(indicator_14が描画する  |
-//|      SQ/TR/SPラベル等)の文字がパネルの手前に出てしまう問題への対策。|
-//|    ③タイトルを「DokaKotsu — XAUUSD」から「DokaKotsu」に変更(銘柄名 |
-//|      を削除)。                                                    |
-//|    ④右上バッジを固定「● EA稼働中」から、DokaKotsu_US_Calendarが   |
-//|      実際にチャート上に存在するかの実チェックへ変更。存在すれば    |
-//|      緑「● _US_Calendar連携中」、無ければ赤「● _US_Calendar_未連携」|
-//|      (IsUsCalendarPresent()新設、ChartIndicatorNameで名前接頭辞    |
-//|      "DokaKotsu_US_Calendar"を走査)。                             |
-//|    ⑤WAIT/Ready/INの下にあった進捗%テキスト行(entrypct)を削除。    |
-//|      実データに未接続のまま空白/既定文字"Label"が表示され続ける    |
-//|      バグだった。メッセージ箱(GET/LOSE/IN)だけで表現し、非表示時は |
-//|      高さも詰まるようにした(元々メッセージ箱側に実装済みの挙動)。  |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15  修正内容                                  |
-//|    ①GET/LOSEメッセージ箱を実データで動かせるよう実装。EA_14の     |
-//|      DK_UpdateGameStats()(2026-07-14追加)が書き出すGV             |
-//|      (DK_EA_LASTCLOSE_PIPS/WIN/TIME_<magic>,                     |
-//|       DK_EA_WINSTREAK_<magic>)を読み、直近決済がInpMsgFreshSec    |
-//|      (既定180)秒以内ならGET(勝ち)/LOSE(負け)を表示する。保有中     |
-//|      (IN)の時はそちらを優先。従来はInpUseRealLogic=trueでもこの   |
-//|      2つは常に非表示のままだった。                                |
-//|    ②ボラティリティ表示をATR(pips)基準からADX基準へ変更。          |
-//|      本体インジ(DokaKotsu_indicator_14 Ver14.02)に新設した        |
-//|      buf60(BufAdxRaw,ADX生値)を読み、<1.6=グレー(動かず)/         |
-//|      <2.0=イエロー/<3.5=ライム/>=3.5=レッドの4段階で表示。         |
-//|      InpAtrLow/Mid/High・InpAtrPeriod・g_atrHandleは削除。         |
-//|    ③バー下・状態テキストの表示文言「NOTRADE」を全箇所「WAIT」へ   |
-//|      変更。                                                       |
-//|                                                                  |
 //|  ■ 修正日: 2026-07-13  修正内容                                  |
 //|    ①パネル縦幅(InpPanelHeightPct)既定を160→110に変更              |
 //|    ②上位足の方向を固定サンプルから実データへ変更。本体インジを    |
@@ -192,25 +60,54 @@ input ENUM_ENTRY_DEMO InpEntryDemoState = DEMO_GET;  // 見た目確認用。既
 input bool InpUseRealLogic = true;   // true=実ロジックで動かす。falseにするとInpEntryDemoStateの見た目確認モードに戻る
 input long InpMagic = 20260606;      // EAのマジックナンバー(保有中判定に使用)
 input double InpMeterConvMargin = 0.40; // メーターReady表示に必要な収束度の余裕(モニターのMETER_CONV_MARGINと同じ)
+input double InpCloseFlashSeconds = 45.0; // ★2026-07-14追加: 直近決済からこの秒数以内ならGET/LOSEメッセージを表示
 
 //+------------------------------------------------------------------+
-//| ★2026-07-14追加: モニター(monitor_3.py)の5ステップ判定をそのまま移植。
+//| ★2026-07-14追加: EA(DK_UpdateGameStats)が書くGlobalVariableを読み、|
+//|   直近決済がGET(勝ち)かLOSE(負け)か、まだ「表示に値する新しさ」か、 |
+//|   連勝数・pips文字列を組み立てて返す。                             |
+//+------------------------------------------------------------------+
+void ReadGameStats(bool &showGet, bool &showLose, string &streakTxt, string &pipsTxt, color &pipsCol)
+  {
+   showGet=false; showLose=false; streakTxt=""; pipsTxt=""; pipsCol=COL_GREEN;
+
+   string gTime = StringFormat("DK_EA_LASTCLOSE_TIME_%d", InpMagic);
+   string gWin  = StringFormat("DK_EA_LASTCLOSE_WIN_%d",  InpMagic);
+   string gPips = StringFormat("DK_EA_LASTCLOSE_PIPS_%d", InpMagic);
+   string gStrk = StringFormat("DK_EA_WINSTREAK_%d",      InpMagic);
+   if(!GlobalVariableCheck(gTime)) return;
+
+   datetime closeTime = (datetime)GlobalVariableGet(gTime);
+   double   age        = (double)(TimeCurrent() - closeTime);
+   if(age < 0 || age > InpCloseFlashSeconds) return;   // 決済から時間が経ちすぎていれば何も出さない
+
+   bool   isWin = GlobalVariableCheck(gWin)  ? (GlobalVariableGet(gWin) >= 0.5) : false;
+   double pips  = GlobalVariableCheck(gPips) ? GlobalVariableGet(gPips) : 0.0;
+   int    strk  = GlobalVariableCheck(gStrk) ? (int)MathRound(GlobalVariableGet(gStrk)) : 0;
+
+   if(isWin) { showGet=true;  pipsTxt=StringFormat("WIN +%.1fp",  MathAbs(pips)); pipsCol=COL_GREEN; }
+   else      { showLose=true; pipsTxt=StringFormat("LOSE -%.1fp", MathAbs(pips)); pipsCol=COL_RED;   }
+   if(strk>0) streakTxt="🔥"+IntegerToString(strk)+"連勝";
+  }
+
+//+------------------------------------------------------------------+
+//| ★2026-07-14変更: モニター(monitor_3.py)の5ステップ判定をそのまま移植。
 //|   mc(短期波色)=buf22、ha(平均足)=buf14、isTrend(非スクイーズ)=buf53、
-//|   power(ADX)=buf26、convN(収束度)=buf58。
-//|   ※stReentry(再入ロック)は現状インジ側にshift付きで読める専用バッファが
-//|     無いため、暫定でtrue(常に満たす)固定にしている。要注意。
+//|   power(ADX)=buf26、convN(収束度)=buf58、stReentry(再入ロック)=buf60。
+//|   buf60はindicator_14側に今回新規追加してもらったため、暫定値から実値に差し替え。
 //+------------------------------------------------------------------+
 void ReadEntryTimingState(int &rbLeft, string &rbText, color &rbColor, string &rbPct)
   {
-   rbLeft=8; rbText="WAIT"; rbColor=C'200,160,0'; rbPct="";
+   rbLeft=8; rbText="NOTRADE"; rbColor=C'200,160,0'; rbPct="";
    if(g_indHandle == INVALID_HANDLE) return;
 
-   double bufMc[], bufHa[], bufTrend[], bufPower[], bufConv[];
-   if(CopyBuffer(g_indHandle,22,1,1,bufMc)    <= 0) return;
-   if(CopyBuffer(g_indHandle,14,1,1,bufHa)    <= 0) return;
-   if(CopyBuffer(g_indHandle,53,1,1,bufTrend) <= 0) return;
-   if(CopyBuffer(g_indHandle,26,1,1,bufPower) <= 0) return;
-   if(CopyBuffer(g_indHandle,58,1,1,bufConv)  <= 0) return;
+   double bufMc[], bufHa[], bufTrend[], bufPower[], bufConv[], bufReentry[];
+   if(CopyBuffer(g_indHandle,22,1,1,bufMc)      <= 0) return;
+   if(CopyBuffer(g_indHandle,14,1,1,bufHa)      <= 0) return;
+   if(CopyBuffer(g_indHandle,53,1,1,bufTrend)   <= 0) return;
+   if(CopyBuffer(g_indHandle,26,1,1,bufPower)   <= 0) return;
+   if(CopyBuffer(g_indHandle,58,1,1,bufConv)    <= 0) return;
+   if(CopyBuffer(g_indHandle,60,1,1,bufReentry) <= 0) return;
 
    int    mc      = (int)MathRound(bufMc[0]);      // 1=上昇/-1=下降/0=グレー
    int    ha      = (int)MathRound(bufHa[0]);      // 1=上昇/-1=下降
@@ -222,7 +119,7 @@ void ReadEntryTimingState(int &rbLeft, string &rbText, color &rbColor, string &r
    bool stHa    = (mc==1 && ha==1) || (mc==-1 && ha==-1);
    bool stTrend = isTrend;
    bool stPower = (mc==1 && power==1) || (mc==-1 && power==2);
-   bool stReentry = true;   // ★暫定固定。再入ロック専用バッファが出来たら差し替える
+   bool stReentry = (bufReentry[0] < 0.5);   // ★2026-07-14変更: buf60(BufReentryLock)の実値(1=ロック中→不許可)
 
    bool allReady = stDir && stHa && stTrend && stPower && stReentry;
    bool convMarginOK = (convN >= InpMeterConvMargin);
@@ -242,10 +139,10 @@ void ReadEntryTimingState(int &rbLeft, string &rbText, color &rbColor, string &r
    // --- モニターと同じ判定チェーン(そのまま移植) ---
    if(pos_state=="IN")        { rbLeft=100; rbText="IN！";     rbColor=C'126,200,227'; rbPct=""; }
    else if(meterReady)        { rbLeft=75;  rbText="Ready!";   rbColor=C'46,204,46';   rbPct=""; }
-   else if(allReady)          { rbLeft=55;  rbText="WAIT";  rbColor=C'200,160,0';   rbPct="あと一歩"; }
-   else if(stDir && stHa && stTrend) { rbLeft=50; rbText="WAIT"; rbColor=C'200,160,0'; rbPct="あと一歩"; }
-   else if(stDir)             { rbLeft=25;  rbText="WAIT";  rbColor=C'200,160,0';   rbPct="方向◯"; }
-   else                       { rbLeft=8;   rbText="WAIT";  rbColor=C'200,160,0';   rbPct=""; }
+   else if(allReady)          { rbLeft=55;  rbText="NOTRADE";  rbColor=C'200,160,0';   rbPct="あと一歩"; }
+   else if(stDir && stHa && stTrend) { rbLeft=50; rbText="NOTRADE"; rbColor=C'200,160,0'; rbPct="あと一歩"; }
+   else if(stDir)             { rbLeft=25;  rbText="NOTRADE";  rbColor=C'200,160,0';   rbPct="方向◯"; }
+   else                       { rbLeft=8;   rbText="NOTRADE";  rbColor=C'200,160,0';   rbPct=""; }
   }
 CCanvas RbCanvas;
 bool    g_rbCanvasReady = false;
@@ -363,7 +260,7 @@ void DrawRainbowBarCanvas(int w,int h,double progress,int r=9)
    // ★2026-07-13(3回目)追加: シマー(光が斜めに流れる)演出。モニターの.rb-shimmerに相当。
    //   時間経過で位置を動かし、半透明の白い帯をバーに重ねる。
    {
-      double shimmerT = 0.5;   // ★2026-07-15(6回目)変更: GetTickCount()による常時アニメーションを廃止(負荷対策)。固定位置で静止表示
+      double shimmerT = MathMod((double)GetTickCount()/1200.0, 1.0);   // 0→1を約1.2秒で周回
       double shimmerCenterPx = -w*0.3 + shimmerT*(w*1.6);              // バー幅の外側から外側へ流れる
       double shimmerWidthPx  = w*0.18;
       for(int x=0;x<w;x++)
@@ -428,17 +325,15 @@ int g_indHandle = INVALID_HANDLE;
 string g_indNameSeen = "";
 
 //--- ★2026-07-13追加: ボラティリティ(ATR)の3段階しきい値(pips)
-//--- ★2026-07-15変更: ボラティリティ判定をATR(pips)からADX生値(本体インジbuf60)基準へ変更
-input double InpAdxVolLow    = 29.0;  // これ未満=ボラ無し(グレー・動かず) ★2026-07-16変更: 22→29
-input double InpAdxVolMid    = 36.0;  // これ未満=イエロー ★2026-07-16変更: 40→36
-input double InpAdxVolHigh   = 80.0;  // これ未満=ライム。これ以上=レッド ★2026-07-15(5回目)変更: 50→80
-//--- ★2026-07-16追加: 「決済目安」メーター(0%=エントリー直後/100%=決済)。案②=段階決済モード切替の節目を基準にする
-input double InpStagedTrigPipsMirror = 100.0;  // EA_15のInpStagedTrigPipsと同じ値にしてください(段階決済モードへ切り替わる含み益pips)
-input double InpMeterStagedPct       = 65.0;   // 上記の節目に到達した時、メーターを何%の位置に置くか
+input int InpAtrPeriod    = 14;   // ATR期間
+input double InpAtrLow    = 30.0;  // これ未満=ボラ無し(グレー)
+input double InpAtrMid    = 70.0;  // これ未満=東京市場レベル(黄色)
+input double InpAtrHigh   = 120.0; // これ未満=NY23時レベル(オレンジ)。これ以上=戦争レベル(赤、数ヶ月に一度)
+int g_atrHandle = INVALID_HANDLE;
 
 //--- ★2026-07-13追加: DR(日次レンジ)の★段階しきい値(pips、Dashboard共通のpoint*10換算)
-input int InpDrSmall = 400;    // これ以下=★ ★2026-07-15(6回目)変更: 150→400
-input int InpDrLarge = 1000;   // これ以下=★★。これより大きい=★★★ ★2026-07-15(6回目)変更: 300→1000
+input int InpDrSmall = 150;   // これ未満=★
+input int InpDrLarge = 300;   // これ以上=★★★。間は★★
 
 //+------------------------------------------------------------------+
 //| ★2026-07-13追加: チャートに実際に貼られている本体インジを          |
@@ -469,49 +364,6 @@ int FindDokaKotsuHandle()
         }
      }
    return INVALID_HANDLE;
-  }
-
-//+------------------------------------------------------------------+
-//| ★2026-07-15追加: DokaKotsu_US_Calendarがチャート上に存在するか判定 |
-//+------------------------------------------------------------------+
-bool IsUsCalendarPresent()
-  {
-   int winTotal = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
-   for(int w = 0; w < winTotal; w++)
-     {
-      int total = ChartIndicatorsTotal(0, w);
-      for(int i = 0; i < total; i++)
-        {
-         string name = ChartIndicatorName(0, w, i);
-         if(StringFind(name, "DokaKotsu_US_Calendar") == 0) return true;
-        }
-     }
-   return false;
-  }
-
-//+------------------------------------------------------------------+
-//| ★2026-07-16追加: 「決済目安」メーター用。保有中ポジションの含み益 |
-//|   をpipsで返す(無ければfalse)。このシンボル・このEAのマジックの   |
-//|   ポジションだけを対象にする(既存のpos_state判定と同じ絞り込み)。 |
-//+------------------------------------------------------------------+
-bool GetOpenPositionProfitPips(double &profitPips)
-  {
-   profitPips = 0.0;
-   for(int k=PositionsTotal()-1; k>=0; k--)
-     {
-      ulong tk=PositionGetTicket(k);
-      if(tk==0) continue;
-      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
-      double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-      double pipSize = _Point*10;   // XAUUSD慣習(他のブロックと統一)
-      if(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY)
-         profitPips = (SymbolInfoDouble(_Symbol,SYMBOL_BID) - entry) / pipSize;
-      else
-         profitPips = (entry - SymbolInfoDouble(_Symbol,SYMBOL_ASK)) / pipSize;
-      return true;
-     }
-   return false;
   }
 
 //+------------------------------------------------------------------+
@@ -601,11 +453,9 @@ void CreateRectLabel(string name,int x,int y,int w,int h,color bg,color border,i
    ObjectSetInteger(0,full,OBJPROP_COLOR,border);
    ObjectSetInteger(0,full,OBJPROP_WIDTH,1);
    ObjectSetInteger(0,full,OBJPROP_BACK,false);
-   ObjectSetInteger(0,full,OBJPROP_FILL,true);   // ★2026-07-15(5回目)追加: MT5環境によってはBGCOLORだけでは
-                                                   //   塗りつぶされずチャートの文字が透けることがあるための対策
    ObjectSetInteger(0,full,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,full,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,full,OBJPROP_ZORDER,100000000+zorder);   // ★2026-07-15: 他インジ(SQ/TR/SP等)より必ず手前に出すため大幅に引き上げ
+   ObjectSetInteger(0,full,OBJPROP_ZORDER,1000+zorder);
   }
 
 void CreateLabelText(string name,int x,int y,string text,color clr,int fontsize=8,string font="Arial",ENUM_ANCHOR_POINT anchor=ANCHOR_LEFT_UPPER)
@@ -623,10 +473,10 @@ void CreateLabelText(string name,int x,int y,string text,color clr,int fontsize=
    ObjectSetInteger(0,full,OBJPROP_BACK,false);
    ObjectSetInteger(0,full,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,full,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,full,OBJPROP_ZORDER,100000500);   // ★2026-07-15: 同上
+   ObjectSetInteger(0,full,OBJPROP_ZORDER,1002);
   }
 
-void CreateButtonObj(string name,int x,int y,int w,int h,string text,color bg,color txt,color border,int fontsize=7)
+void CreateButtonObj(string name,int x,int y,int w,int h,string text,color bg,color txt,color border)
   {
    string full=PFX+name;
    if(ObjectFind(0,full)<0) ObjectCreate(0,full,OBJ_BUTTON,0,0,0);
@@ -639,11 +489,11 @@ void CreateButtonObj(string name,int x,int y,int w,int h,string text,color bg,co
    ObjectSetInteger(0,full,OBJPROP_BGCOLOR,bg);
    ObjectSetInteger(0,full,OBJPROP_COLOR,txt);
    ObjectSetInteger(0,full,OBJPROP_BORDER_COLOR,border);
-   ObjectSetInteger(0,full,OBJPROP_FONTSIZE,fontsize);   // ★2026-07-15(5回目)変更: 固定7→引数化(ボタン拡大時に文字も追従)
+   ObjectSetInteger(0,full,OBJPROP_FONTSIZE,7);
    ObjectSetInteger(0,full,OBJPROP_BACK,false);
    ObjectSetInteger(0,full,OBJPROP_SELECTABLE,false);
    ObjectSetInteger(0,full,OBJPROP_HIDDEN,true);
-   ObjectSetInteger(0,full,OBJPROP_ZORDER,100000600);   // ★2026-07-15: 同上
+   ObjectSetInteger(0,full,OBJPROP_ZORDER,1003);
    ObjectSetInteger(0,full,OBJPROP_STATE,false);
   }
 
@@ -667,33 +517,14 @@ void CreatePanel()
    int curY=y+(int)(18*sc);
 
    // タイトル + バッジ（バッジは右揃え）
-   CreateLabelText("title",x+pad,curY,"DokaKotsu",COL_TEXT,9);
-   // ★2026-07-15変更: 固定「EA稼働中」から、DokaKotsu_US_Calendarの実在チェックへ変更
-   bool calOnChart = IsUsCalendarPresent();
-   if(calOnChart)
-      CreateLabelText("badge",rightEdge,curY+1,"● US_Calendar _連携中",COL_GREEN,7,"Arial",ANCHOR_RIGHT_UPPER);
-   else
-      CreateLabelText("badge",rightEdge,curY+1,"● US_Calendar_未連携",COL_RED,7,"Arial",ANCHOR_RIGHT_UPPER);
+   CreateLabelText("title",x+pad,curY,"DokaKotsu — XAUUSD",COL_TEXT,9);
+   CreateLabelText("badge",rightEdge,curY+1,"● EA稼働中",COL_GREEN,7,"Arial",ANCHOR_RIGHT_UPPER);
    curY+=(int)(38*sc);
 
-   // ロット / TOTAL pips（★2026-07-15(4回目)変更: 「0.1 Lot」を■(取引停止)/▶(復活)ボタンに置き換え）
-   int lotboxH=(int)(38*sc);   // ★2026-07-15(5回目)変更: 28→38(拡大したボタンが収まるように)
+   // ロット / TOTAL pips（TOTALラベルと値はどちらも右揃えで重ならないよう間隔を確保）
+   int lotboxH=(int)(28*sc);
    CreateRectLabel("lotbox",x+pad,curY,innerW,lotboxH,COL_CELL,COL_BORDER);
-   bool dashPaused = GlobalVariableCheck(StringFormat("DK_DASH_TRADEPAUSE_%d",InpMagic))
-                     && GlobalVariableGet(StringFormat("DK_DASH_TRADEPAUSE_%d",InpMagic))!=0.0;
-   int btnSize=(int)(30*sc);   // ★2026-07-15(5回目)変更: 20→30(1.5倍)
-   CreateButtonObj("btnstop",x+pad+8,           curY+(lotboxH-btnSize)/2,btnSize,btnSize,"■",C'200,40,40',COL_TEXT,C'160,20,20',11);
-   CreateButtonObj("btnplay",x+pad+8+btnSize+6, curY+(lotboxH-btnSize)/2,btnSize,btnSize,">",C'0,140,120',COL_TEXT,C'0,100,90',13);   // ★2026-07-15(6回目)変更: ▶が文字化けするため">"に変更
-   string pauseTxt = dashPaused ? "取引停止中" : "EA稼働中";   // ★2026-07-15(7回目)変更: 「稼働中」→「EA稼働中」
-   color  pauseCol = dashPaused ? COL_RED : COL_GREEN;
-   if(!dashPaused)
-     {
-      // ★2026-07-15(7回目)追加: ゆっくり点滅(約1.6秒周期)。専用タイマーは追加せず、
-      //   既存の1秒更新の中でGetTickCount()の位相だけ見て色を背景色に落とす=負荷を増やさない
-      bool blinkOn = (((int)(GetTickCount()/800)) % 2 == 0);
-      if(!blinkOn) pauseCol = COL_BG;
-     }
-   CreateLabelText("pausestate",x+pad+8+btnSize*2+16,curY+(int)(9*sc),pauseTxt,pauseCol,7);
+   CreateLabelText("lot",x+pad+8,curY+(int)(8*sc),"0.1 Lot",COL_TEXT,8);
    CreateLabelText("totallbl",rightEdge-72,curY+(int)(9*sc),"TOTAL",COL_GRAY2,7,"Arial",ANCHOR_RIGHT_UPPER);
    CreateLabelText("totalval",rightEdge-8,curY+(int)(7*sc),"+345 pips",COL_BLUE,8,"Arial",ANCHOR_RIGHT_UPPER);
    curY+=lotboxH+(int)(24*sc);
@@ -715,39 +546,38 @@ void CreatePanel()
       double dayHigh = iHigh(_Symbol, PERIOD_D1, 0);
       double dayLow  = iLow(_Symbol, PERIOD_D1, 0);
       int drPips = (int)MathRound((dayHigh - dayLow) / _Point / 10.0);   // Dashboard共通のpips換算(point*10)
-      string stars = (drPips <= InpDrSmall) ? "★" : (drPips <= InpDrLarge) ? "★★" : "★★★";   // ★2026-07-15(6回目)変更: <を<=に(「以下」の意味に合わせる)
+      string stars = (drPips < InpDrSmall) ? "★" : (drPips < InpDrLarge) ? "★★" : "★★★";
       // ★2026-07-13(2回目)変更: 全決済ボタンを削除し2部屋構成に。左=上方向(既存,左詰め)/右=★★★DR628のように右詰め
       CreateLabelText("dirstars",rightEdge,curY+(int)(10*sc),stars+"DR"+IntegerToString(drPips),col,10,"Arial",ANCHOR_RIGHT_UPPER);
      }
    ObjectDelete(0,PFX+"closeall");   // ★2026-07-13(2回目): 全決済ボタンを撤去(過去に作られた分も消す)
    curY+=dirboxH+(int)(24*sc);
 
-   // ボラティリティ（★2026-07-15変更: ATR(pips)基準→ADX生値(本体インジbuf60)基準に変更。
-   //   4段階: <1.6=グレー(動かず)/<2.0=イエロー/<50=ライム/>=50=レッド)
-   // --- 本体インジのADX生値(buf60)を先に読む(見出し右横に実数値を出すため) ---
-   double adxVal = 0.0;
-   if(g_indHandle != INVALID_HANDLE)
-     {
-      double adxBuf[];
-      if(CopyBuffer(g_indHandle, 60, 1, 1, adxBuf) > 0)
-         adxVal = adxBuf[0];
-     }
+   // ボラティリティ（★2026-07-13変更: 固定サンプル→ATRを読み、添付HTMLと同じサイン波ノイズで
+   //   滑らかに波打たせる。3段階: 小さい=グレー/通常=黄色/荒れ狂う=赤）
    CreateLabelText("wavelbl",x+pad,curY,"ボラティリティ",COL_GRAY,7);
-   CreateLabelText("wavevalnow",x+pad+62,curY,StringFormat("ADX %.1f",adxVal),COL_GRAY2,7);   // ★2026-07-15(4回目)追加
    curY+=(int)(20*sc);
    int waveboxH=(int)(36*sc);
    CreateRectLabel("wavebox",x+pad,curY,innerW,waveboxH,COL_CELL,COL_BORDER);
      {
+      // --- ATR読み取り→pips換算(XAUUSD 2桁建値・point*10慣習。値がおかしい場合はここを調整) ---
+      double atrPips = 0.0;
+      if(g_atrHandle != INVALID_HANDLE)
+        {
+         double atrBuf[];
+         if(CopyBuffer(g_atrHandle, 0, 1, 1, atrBuf) > 0)
+            atrPips = atrBuf[0] / _Point / 10.0;
+        }
       string mode; color baseCol; double amp, base;
-      if(adxVal < InpAdxVolLow)        { mode="grey";   baseCol=COL_GRAY2;  amp=0.16; base=0.08; }
-      else if(adxVal < InpAdxVolMid)   { mode="yellow"; baseCol=COL_YELLOW; amp=0.38; base=0.18; }
-      else if(adxVal < InpAdxVolHigh)  { mode="lime";   baseCol=COL_LIME;   amp=0.60; base=0.30; }
-      else                             { mode="red";    baseCol=COL_RED;   amp=0.90; base=0.48; }
+      if(atrPips < InpAtrLow)        { mode="grey";   baseCol=COL_GRAY2;  amp=0.16; base=0.08; }
+      else if(atrPips < InpAtrMid)   { mode="yellow"; baseCol=COL_YELLOW; amp=0.38; base=0.18; }
+      else if(atrPips < InpAtrHigh)  { mode="orange"; baseCol=COL_ORANGE; amp=0.60; base=0.30; }
+      else                           { mode="red";    baseCol=COL_RED;   amp=0.90; base=0.48; }
 
       int barCount=16;
       int barAreaW=innerW-8;
       int barW=barAreaW/barCount;
-      double t=0.0;   // ★2026-07-15(6回目)変更: GetTickCount()による常時アニメーションを廃止(負荷対策)。最初の1枚を固定表示
+      double t=(double)GetTickCount()/350.0;   // ★添付HTMLのanimateWave()と同じ考え方(sin合成でゆらぎ)
       for(int i=0;i<barCount;i++)
         {
          double noise = MathSin(t+i*0.55)*0.5 + MathSin(t*1.3+i*0.3)*0.3 + MathSin(t*0.7+i*0.9)*0.2;
@@ -760,16 +590,16 @@ void CreatePanel()
          CreateRectLabel("wavebar"+IntegerToString(i),bx,by,barW-1,bh,baseCol,baseCol,1);
         }
       curY+=waveboxH+(int)(14*sc);
-      string stateTxt = (mode=="grey") ? "LOW" : (mode=="yellow") ? "MID" : (mode=="lime") ? "HIGH" : " "; // ★2026-07-14変更: DANGERは警告文と重なるため削除(スペースに)
+      string stateTxt = (mode=="grey") ? "LOW" : (mode=="yellow") ? "MID" : (mode=="orange") ? "HIGH" : " "; // ★2026-07-14変更: DANGERは警告文と重なるため削除(スペースに)
       CreateLabelText("wavestate",x+pad,curY,stateTxt,baseCol,8);
       if(mode=="grey")
          CreateLabelText("wavewarn",rightEdge,curY+1,"⚠ ボラ不足 — エントリー非推奨",COL_ORANGE,7,"Arial",ANCHOR_RIGHT_UPPER);
-      else if(mode=="lime")
+      else if(mode=="orange")
          CreateLabelText("wavewarn",rightEdge,curY+1,"⚠ 高ボラ — ロット調整を検討",COL_ORANGE,7,"Arial",ANCHOR_RIGHT_UPPER);
       else if(mode=="red")
          CreateLabelText("wavewarn",rightEdge,curY+1,"⚠ ボラ異常 — ロットを下げるか中止してください",COL_RED,7,"Arial",ANCHOR_RIGHT_UPPER);
       else
-         CreateLabelText("wavewarn",rightEdge,curY+1," ",COL_BG,7,"Arial",ANCHOR_RIGHT_UPPER);   // ★2026-07-15(2回目): 警告なし時は背景色化
+         CreateLabelText("wavewarn",rightEdge,curY+1," ",COL_ORANGE,7,"Arial",ANCHOR_RIGHT_UPPER);
      }
    curY+=(int)(32*sc);
 
@@ -791,30 +621,11 @@ void CreatePanel()
       statusCol   = rbColor;
       demoProgress= rbLeft/100.0;
       showMsgIn   = (rbText=="IN！");
-      // ★2026-07-15追加: EA_14(DK_UpdateGameStats,2026-07-14追加)が書き出す直近決済GVを読み、
-      //   GET/LOSEのポップアップを実データで反映する。保有中(showMsgIn)の時はそちらを優先。
-      // ★2026-07-15(5回目)変更: 時間切れによる自動非表示をやめ、次のエントリー(showMsgIn=true)が
-      //   発生するまでずっと表示し続けるよう変更(InpMsgFreshSecは使わなくなったため削除)。
-      if(!showMsgIn)
-        {
-         string gvPips = StringFormat("DK_EA_LASTCLOSE_PIPS_%d", InpMagic);
-         string gvWin  = StringFormat("DK_EA_LASTCLOSE_WIN_%d",  InpMagic);
-         string gvTime = StringFormat("DK_EA_LASTCLOSE_TIME_%d", InpMagic);
-         string gvWs   = StringFormat("DK_EA_WINSTREAK_%d",      InpMagic);
-         if(GlobalVariableCheck(gvTime))
-           {
-            datetime closeTime = (datetime)GlobalVariableGet(gvTime);
-            if(closeTime>0)
-              {
-               double pips  = GlobalVariableCheck(gvPips) ? GlobalVariableGet(gvPips) : 0.0;   // 符号付き(勝ち=正/負け=負)
-               bool   isWin = GlobalVariableCheck(gvWin)  ? (GlobalVariableGet(gvWin)!=0.0) : (pips>=0.0);
-               int    ws    = GlobalVariableCheck(gvWs)   ? (int)GlobalVariableGet(gvWs) : 0;
-               if(isWin) { showMsgGet=true;  pipsTxt=StringFormat("WIN +%.1fp", pips); pipsCol=COL_GREEN; }
-               else      { showMsgLose=true; pipsTxt=StringFormat("LOSE %.1fp", pips); pipsCol=COL_RED;  }
-               streakTxt = (ws>=2) ? StringFormat("🔥%d連勝", ws) : "";
-              }
-           }
-        }
+
+      // ★2026-07-14追加: EA(DK_UpdateGameStats)が書くGVから、直近決済のGET/LOSEと連勝/pipsを反映
+      bool gGet, gLose;
+      ReadGameStats(gGet, gLose, streakTxt, pipsTxt, pipsCol);
+      if(!showMsgIn) { showMsgGet=gGet; showMsgLose=gLose; }   // 保有中(IN)表示を優先し、GET/LOSEと同時には出さない
      }
    else
      {
@@ -822,9 +633,9 @@ void CreatePanel()
         {
          case DEMO_READY: statusTxt="Ready";   statusCol=C'74,175,80';  demoProgress=0.60; break;
          case DEMO_IN:    statusTxt="IN";      statusCol=C'66,165,245'; demoProgress=0.95; showMsgIn=true; streakTxt="🔥3連勝"; break;
-         case DEMO_GET:   statusTxt="WAIT"; statusCol=C'245,197,24'; demoProgress=0.08; showMsgGet=true;  streakTxt="🔥3連勝"; pipsTxt="WIN +55.2p"; pipsCol=COL_GREEN; break;
-         case DEMO_LOSE:  statusTxt="WAIT"; statusCol=C'245,197,24'; demoProgress=0.08; showMsgLose=true; streakTxt="";        pipsTxt="LOSE -32.1p"; pipsCol=COL_RED;  break;
-         default:         statusTxt="WAIT"; statusCol=C'245,197,24'; demoProgress=0.08; break; // DEMO_NOTRADE
+         case DEMO_GET:   statusTxt="NOTRADE"; statusCol=C'245,197,24'; demoProgress=0.08; showMsgGet=true;  streakTxt="🔥3連勝"; pipsTxt="WIN +55.2p"; pipsCol=COL_GREEN; break;
+         case DEMO_LOSE:  statusTxt="NOTRADE"; statusCol=C'245,197,24'; demoProgress=0.08; showMsgLose=true; streakTxt="";        pipsTxt="LOSE -32.1p"; pipsCol=COL_RED;  break;
+         default:         statusTxt="NOTRADE"; statusCol=C'245,197,24'; demoProgress=0.08; break; // DEMO_NOTRADE
         }
      }
 
@@ -848,7 +659,7 @@ void CreatePanel()
             ObjectSetInteger(0,RB_OBJ,OBJPROP_BACK,false);
             ObjectSetInteger(0,RB_OBJ,OBJPROP_SELECTABLE,false);
             ObjectSetInteger(0,RB_OBJ,OBJPROP_HIDDEN,true);
-            ObjectSetInteger(0,RB_OBJ,OBJPROP_ZORDER,100000500);   // ★2026-07-15: 同上
+            ObjectSetInteger(0,RB_OBJ,OBJPROP_ZORDER,1002);
             g_rbCanvasReady=true; g_rbCanvasW=barW; g_rbCanvasH=barH;
            }
          else
@@ -864,73 +675,25 @@ void CreatePanel()
    curY+=rbarH+(int)(4*sc);
 
    // ③ バー下の3ラベル(NOTRADE/Ready/IN)
-   CreateLabelText("rblabel_l",x+pad,curY,"WAIT",C'245,197,24',7);
+   CreateLabelText("rblabel_l",x+pad,curY,"NOTRADE",C'245,197,24',7);
    CreateLabelText("rblabel_m",x+pad+innerW/2,curY,"Ready",C'74,175,80',7,"Arial",ANCHOR_UPPER);
    CreateLabelText("rblabel_r",rightEdge,curY,"IN",C'66,165,245',7,"Arial",ANCHOR_RIGHT_UPPER);
    curY+=(int)(14*sc);
-   curY+=(int)(14*sc);   // ★2026-07-15(6回目)追加: 「決済目安」との間が詰まって見づらいため空白1行分を追加
 
-   // ★2026-07-15削除: 進捗%テキスト(entrypct)は実データに未接続のまま空白/既定文字"Label"が
-   //   表示され続けるバグだった行。下のメッセージ箱(⑤)だけで十分表現できるため廃止し、
-   //   非表示時は詰める(高さを使わない)。再コンパイル前の古いオブジェクトが残っていれば削除する。
-   ObjectDelete(0,PFX+"entrypct");
-
-   // ★2026-07-15(4回目)変更: 「決済目安」と「INしました」ブロックの表示順を入替(決済目安を先に)
-   // 決済目安（★2026-07-16変更: 案②=段階決済モード切替の節目を基準にした実ロジックへ差し替え。
-   //   0%=エントリー直後/InpMeterStagedPct%=含み益がInpStagedTrigPipsMirrorに到達(段階決済モードへ切替)/
-   //   100%=実際の決済。節目到達後はトレーリングの経過を厳密には予測できないため、節目〜100%の中間で
-   //   固定表示する(「決済判断の監視フェーズに入った」ことを示す簡易表現。ウソをつかない設計)。
-   //   保有していない時は、直近決済があれば100%のまま(次のエントリーまで)、無ければ0%。
-   CreateLabelText("ailbl",x+pad,curY,"決済目安",COL_GRAY,7);
-   curY+=(int)(20*sc);
-   int segH=(int)(9*sc);
-     {
-      int barX=x+pad;
-      int barW=innerW;
-      double convVal;   // 0.0〜1.0
-      double profitPips=0.0;
-      bool posOpen = GetOpenPositionProfitPips(profitPips);
-      if(posOpen)
-        {
-         double stagedFrac = InpMeterStagedPct/100.0;
-         if(profitPips < InpStagedTrigPipsMirror)
-            convVal = MathMax(0.0, profitPips/InpStagedTrigPipsMirror) * stagedFrac;
-         else
-            convVal = stagedFrac + (1.0-stagedFrac)*0.5;   // 節目到達後(トレーリング監視中)は中間で固定
-        }
-      else
-        {
-         // ★直近決済がまだ新しければ100%のまま表示(GET/LOSEメッセージと同じ鮮度判定を流用)
-         string gvTime = StringFormat("DK_EA_LASTCLOSE_TIME_%d", InpMagic);
-         bool recentClose = GlobalVariableCheck(gvTime) && (datetime)GlobalVariableGet(gvTime) > 0
-                             && !showMsgIn;   // showMsgInがtrueなら別途保有中扱いなのでここには来ないはずだが念のため
-         convVal = (recentClose && (showMsgGet || showMsgLose)) ? 1.0 : 0.0;
-        }
-      double convThresh=InpMeterStagedPct/100.0;   // 節目の区切り線位置(メーターと同じ基準に統一)
-      double needlePos = convVal; if(needlePos>1.0) needlePos=1.0; if(needlePos<0.0) needlePos=0.0;
-      int splitX=barX+(int)(barW*convThresh);
-      CreateRectLabel("sqzbg_l",barX,curY,splitX-barX,segH,C'90,45,45',C'90,45,45',1);              // 圧縮ゾーン(暗い赤)
-      CreateRectLabel("sqzbg_r",splitX,curY,barX+barW-splitX,segH,C'45,90,50',C'45,90,50',1);        // ボラありゾーン(暗い緑)
-      CreateRectLabel("sqzsplit",splitX,curY,1,segH,C'204,204,204',C'204,204,204',2);                // 閾値の区切り線
-      int needleX=barX+(int)(barW*needlePos);
-      CreateRectLabel("sqzneedle",needleX-1,curY,3,segH,clrWhite,clrWhite,3);                        // 現在値の針
-      CreateLabelText("sqzlbl_l",x+pad,curY+segH+2,"エントリー",C'200,122,122',7);
-      CreateLabelText("sqzlbl_m",x+pad+innerW/2,curY+segH+2,StringFormat("%.0f%%",InpMeterStagedPct),COL_GRAY,7,"Arial",ANCHOR_UPPER);
-      CreateLabelText("sqzlbl_r",rightEdge,curY+segH+2,"決済",C'106,176,106',7,"Arial",ANCHOR_RIGHT_UPPER);
-     }
-   curY+=segH+(int)(24*sc);
+   // ④ 進捗%テキスト(中央、小さいグレー)
+   CreateLabelText("entrypct",x+pad+innerW/2,curY," ",COL_GRAY2,8,"Arial",ANCHOR_UPPER);
+   curY+=(int)(12*sc);
 
    // ⑤ メッセージ箱(IN/GET/LOSEのいずれか1つだけ、無ければ非表示=高さも詰める)
-   // ★2026-07-15(4回目)変更: 高さ・フォントを約3倍に拡大(18*sc→54*sc、フォント8→14)
    if(showMsgIn || showMsgGet || showMsgLose)
      {
-      int msgH=(int)(54*sc);
+      int msgH=(int)(18*sc);
       color msgBg, msgBorder, msgCol; string msgTxt;
       if(showMsgIn)        { msgBg=C'7,30,53';  msgBorder=C'26,74,122'; msgCol=C'66,165,245'; msgTxt="🔔 INしました（保有中）"; }
       else if(showMsgGet)  { msgBg=C'7,30,53';  msgBorder=C'26,74,122'; msgCol=C'79,195,247'; msgTxt="✔ GETしました 🎉"; }
       else                 { msgBg=C'58,26,26'; msgBorder=C'106,26,26'; msgCol=C'239,83,80';  msgTxt="次がんばりましょう 💪"; }
       CreateRectLabel("entrymsgbox",x+pad,curY,innerW,msgH,msgBg,msgBorder,1);
-      CreateLabelText("entrymsgtxt",x+pad+innerW/2,curY+msgH/2,msgTxt,msgCol,10,"Arial",ANCHOR_CENTER);   // ★2026-07-15(6回目)変更: ANCHOR_CENTERで水平・垂直とも中央揃え
+      CreateLabelText("entrymsgtxt",x+pad+6,curY+msgH/2-6,msgTxt,msgCol,8);
       curY+=msgH+(int)(6*sc);
      }
    else
@@ -940,16 +703,10 @@ void CreatePanel()
      }
 
    // ⑥ 連勝／獲得pips行
-   // ★2026-07-15(2回目)追加: streakTxt/pipsTxtが空文字のままだとMT5既定の"Label"表示が
-   //   出てしまう不具合への安全策。空の時は背景色と同化させて見えなくする。
      {
       int rowH=(int)(16*sc);
-      color streakCol = (streakTxt=="") ? COL_BG : C'255,215,0';
-      color pipsColSafe = (pipsTxt=="") ? COL_BG : pipsCol;
-      string streakShow = (streakTxt=="") ? " " : streakTxt;
-      string pipsShow   = (pipsTxt=="")   ? " " : pipsTxt;
-      CreateLabelText("gamestreak",x+pad,curY+rowH/2-6,streakShow,streakCol,9);
-      CreateLabelText("gamepips",rightEdge,curY+rowH/2-6,pipsShow,pipsColSafe,10,"Arial",ANCHOR_RIGHT_UPPER);
+      CreateLabelText("gamestreak",x+pad,curY+rowH/2-6,streakTxt,C'255,215,0',9);
+      CreateLabelText("gamepips",rightEdge,curY+rowH/2-6,pipsTxt,pipsCol,10,"Arial",ANCHOR_RIGHT_UPPER);
       curY+=rowH+(int)(6*sc);
      }
 
@@ -957,10 +714,33 @@ void CreatePanel()
      {
       CreateRectLabel("legendline",x+pad,curY,innerW,1,COL_BORDER,COL_BORDER,1);
       curY+=(int)(4*sc);
-      CreateLabelText("legendtxt",x+pad,curY," ",COL_BG,7);   // ★2026-07-15(2回目)変更: 空文字だと既定文字"Label"が出るため背景色で見えなくする
+      CreateLabelText("legendtxt",x+pad,curY," ",COL_GRAY2,7);   // ★2026-07-13(5回目)変更: 空文字だと既定文字"Label"が出るためスペース1文字に変更
       curY+=(int)(12*sc);
      }
    curY+=(int)(16*sc);
+
+   // 決済目安（★2026-07-13変更: セグメント10分割→スクイーズ収束度と同じ2色バー+針のデザインに差し替え。
+   //   ロジックは後日いただく予定のため、今回は針位置を固定値(0.22)のまま仮表示。
+   CreateLabelText("ailbl",x+pad,curY,"決済目安",COL_GRAY,7);
+   curY+=(int)(20*sc);
+   int segH=(int)(9*sc);
+     {
+      int barX=x+pad;
+      int barW=innerW;
+      double convVal=0.22;      // ★仮値。ロジック未実装(後日差し替え予定)
+      double convThresh=0.30;   // 閾値(30%位置に区切り線)
+      double needlePos = convVal/1.0; if(needlePos>1.0) needlePos=1.0; if(needlePos<0.0) needlePos=0.0;
+      int splitX=barX+(int)(barW*convThresh);
+      CreateRectLabel("sqzbg_l",barX,curY,splitX-barX,segH,C'90,45,45',C'90,45,45',1);              // 圧縮ゾーン(暗い赤)
+      CreateRectLabel("sqzbg_r",splitX,curY,barX+barW-splitX,segH,C'45,90,50',C'45,90,50',1);        // ボラありゾーン(暗い緑)
+      CreateRectLabel("sqzsplit",splitX,curY,1,segH,C'204,204,204',C'204,204,204',2);                // 閾値の区切り線
+      int needleX=barX+(int)(barW*needlePos);
+      CreateRectLabel("sqzneedle",needleX-1,curY,3,segH,clrWhite,clrWhite,3);                        // 現在値の針
+      CreateLabelText("sqzlbl_l",x+pad,curY+segH+2,"圧縮",C'200,122,122',7);
+      CreateLabelText("sqzlbl_m",x+pad+innerW/2,curY+segH+2,"閾0.30",COL_GRAY,7,"Arial",ANCHOR_UPPER);
+      CreateLabelText("sqzlbl_r",rightEdge,curY+segH+2,"ボラあり",C'106,176,106',7,"Arial",ANCHOR_RIGHT_UPPER);
+     }
+   curY+=segH+(int)(24*sc);
 
    // 経済指標見出し（★2026-07-07変更: 「本日の趣味レーション」の誤字修正＋日付表示）
    int accH=(int)(20*sc);
@@ -970,14 +750,14 @@ void CreatePanel()
       if(jstNow2 <= 0) jstNow2 = TimeCurrent() + ServerToJstShiftDKD();
       string dateStr = TimeToString(jstNow2, TIME_DATE);
       StringReplace(dateStr, ".", "/");
-      CreateLabelText("acclbl",x+pad+8,curY+accH/2-6,"▲ 本日の経済指標  "+dateStr,COL_GRAY2,7);   // ★2026-07-15(7回目)変更: 「決済目安」と同じフォント7に統一
+      CreateLabelText("acclbl",x+pad+8,curY+accH/2-6,"▲ 本日の経済指標  "+dateStr,COL_GRAY2,7);
    }
    curY+=accH+(int)(12*sc);
 
    // ★2026-07-07変更: GDP/PCIの固定サンプル2行→テキストファイルから読んだ当日分を可変件数で表示。
    //   フォントサイズはご要望により従来(7)の50%増(11)に拡大。
    int calH=(int)(18*sc);
-   int calFont=8;        // ★2026-07-15(2回目)変更: 指標あり時のフォントサイズを11→8に縮小
+   int calFont=11;       // 指標あり時のフォントサイズ(従来通り)
    int calEmptyFont=9;   // ★2026-07-13変更: 「本日は該当指標なし」はこちらをやや小さく(11→9)
    string evLabels[], evHhmm[];
    int evCount = ReadTodayEconEvents(evLabels, evHhmm);
@@ -1035,9 +815,9 @@ int OnInit()
    // 前面に来ないようにする＝パネルが常に最前面に表示される
    ChartSetInteger(0,CHART_FOREGROUND,false);
    g_indHandle = FindDokaKotsuHandle();   // ★2026-07-13追加: 本体インジ自動検出
-   // ★2026-07-15: ボラティリティはADX(buf60)基準に変更したためATRハンドルは不要(削除)
+   g_atrHandle = iATR(_Symbol, _Period, InpAtrPeriod);   // ★2026-07-13追加: ボラティリティ用ATR
    CreatePanel();
-   EventSetMillisecondTimer(1000);   // ★2026-07-15(6回目)変更: 150→1000。アニメーション静止化に伴い高頻度更新が不要になったため負荷軽減
+   EventSetMillisecondTimer(150);   // ★2026-07-13変更: 500→150。波形アニメーションを滑らかにするため
    return(INIT_SUCCEEDED);
   }
 
@@ -1053,41 +833,13 @@ void OnTimer()
   }
 
 //+------------------------------------------------------------------+
-//| ★2026-07-15(4回目)追加: ■(取引停止)/▶(復活)ボタンのクリック処理。 |
-//|   DK_DASH_TRADEPAUSE_<magic>というGlobalVariableへ1(停止)/0(復活) |
-//|   を書き込むだけ。EA_14側がこのGVを毎ティック参照して新規エント   |
-//|   リーを止める/再開する(IsDashboardPaused関数)。保有中のポジションは|
-//|   このボタンでは決済されない(あくまで「新規を止める/再開する」   |
-//|   スイッチ)。                                                     |
-//+------------------------------------------------------------------+
-void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
-  {
-   if(id != CHARTEVENT_OBJECT_CLICK) return;
-   string gv = StringFormat("DK_DASH_TRADEPAUSE_%d", InpMagic);
-   if(sparam == PFX+"btnstop")
-     {
-      GlobalVariableSet(gv, 1.0);
-      ObjectSetInteger(0, PFX+"btnstop", OBJPROP_STATE, false);   // 押しっぱなし表示にしない(単発トリガー)
-      CreatePanel();
-      ChartRedraw();
-     }
-   else if(sparam == PFX+"btnplay")
-     {
-      GlobalVariableSet(gv, 0.0);
-      ObjectSetInteger(0, PFX+"btnplay", OBJPROP_STATE, false);
-      CreatePanel();
-      ChartRedraw();
-     }
-  }
-
-//+------------------------------------------------------------------+
 //| 終了処理（オブジェクト全削除）                                    |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
    EventKillTimer();
    if(g_indHandle != INVALID_HANDLE) IndicatorRelease(g_indHandle);
-   // ★2026-07-15: ATRハンドルは廃止(ボラティリティはADX/buf60基準へ変更)
+   if(g_atrHandle != INVALID_HANDLE) IndicatorRelease(g_atrHandle);
    if(g_rbCanvasReady) RbCanvas.Destroy();
    ObjectsDeleteAll(0,PFX);
    ObjectDelete(0,RB_OBJ);

@@ -23,6 +23,8 @@
 //|     (左下:上50右20/左上:下20右20/右下:上50左60/右上:下20左60) |
 //|   ・[Ver3.0] 初期配置Y(InpStartY)の初期値を400に変更。          |
 //|     「縦の間隔(px)」入力(InpRowGap)を削除し、内部固定値化       |
+//|   ・[Ver3.1] 新規追加ボックスの初期位置を、チャートの現在表示    |
+//|     範囲の縦横中央を基準に計算するよう変更(従来は左側固定)      |
 //|------------------------------------------------------------------|
 //|  チャートの好きな場所にメッセージ箱を自由に貼るツール。          |
 //|                                                                  |
@@ -44,7 +46,7 @@
 //|  ※ MQL5\Indicators\ に置いてコンパイル。UTF-8 BOMで保存。      |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "3.00"
+#property version   "3.10"
 #property strict
 #property indicator_chart_window
 #property indicator_buffers 0
@@ -368,8 +370,14 @@ void AddNewBox()
    int id = g_maxId;
    g_maxId++;
 
-   // 既存箱の最下端ピクセルを探して、その下に配置
-   int bestPY = InpStartY;
+   // ★チャートの現在の表示範囲(縦横)から中央座標を算出し、そこを基準配置とする
+   int chartW = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
+   int chartH = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+   int centerX = chartW / 2 - InpBoxW / 2;
+   int centerY = chartH / 2 - InpBoxH / 2;
+
+   // 既存箱の最下端ピクセルを探して、その下に配置(中央基準からスタック)
+   int bestPY = centerY;
    for(int i = 0; i < id; i++)
    {
       string nmA = PFX_ANCHOR + (string)i;
@@ -383,11 +391,10 @@ void AddNewBox()
             bestPY = py2 + ROW_GAP;
       }
    }
-   int chartH = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
-   if(bestPY + InpBoxH > chartH - 50) bestPY = InpStartY;
+   if(bestPY + InpBoxH > chartH - 50) bestPY = centerY;
 
    datetime newT; double newPrice;
-   if(!PixelToAnchor(InpStartX, bestPY, newT, newPrice))
+   if(!PixelToAnchor(centerX, bestPY, newT, newPrice))
    {
       // 変換失敗時フォールバック
       newT     = iTime(_Symbol, PERIOD_CURRENT, 3);

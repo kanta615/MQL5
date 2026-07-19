@@ -11,6 +11,18 @@
 //|   ・[Ver2.5] タイマー同期がドラッグ中の座標を奪う不具合を修正     |
 //|     (選択中=ドラッグ中の箱は同期をスキップし、ドロップ後に      |
 //|      選択解除して追従を再開する)                                |
+//|   ・[Ver2.6] [＋]追加ボタンの表示位置を4隅から選択可能に          |
+//|     (InpAddBtnCorner、初期値は左下)                              |
+//|   ・[Ver2.7] [＋]ボタンのX/Yオフセットを個別調整可能に            |
+//|     (InpAddBtnOffsetX/Y、初期値10,10。右側コーナーは価格        |
+//|      スケールに隠れないよう内部で+40px補正)                     |
+//|   ・[Ver2.8] [＋]ボタンのオフセット初期値を0,0に変更。角ごとの   |
+//|     補正値を内蔵(左下:上30右20/左上:下20右30/右下:上30左60/    |
+//|     右上:下20左60)。InpAddBtnOffsetX/Yはこれに追加する微調整用 |
+//|   ・[Ver2.9] 角ごとの補正値を再調整                              |
+//|     (左下:上50右20/左上:下20右20/右下:上50左60/右上:下20左60) |
+//|   ・[Ver3.0] 初期配置Y(InpStartY)の初期値を400に変更。          |
+//|     「縦の間隔(px)」入力(InpRowGap)を削除し、内部固定値化       |
 //|------------------------------------------------------------------|
 //|  チャートの好きな場所にメッセージ箱を自由に貼るツール。          |
 //|                                                                  |
@@ -32,7 +44,7 @@
 //|  ※ MQL5\Indicators\ に置いてコンパイル。UTF-8 BOMで保存。      |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "2.50"
+#property version   "3.00"
 #property strict
 #property indicator_chart_window
 #property indicator_buffers 0
@@ -47,8 +59,10 @@ input string InpFont        = "Meiryo";     // フォント
 input int    InpBoxW        = 220;          // 箱の幅(px) ※日本語10文字分
 input int    InpBoxH        = 34;           // 箱の高さ(px)
 input int    InpStartX      = 120;          // [＋]追加時の初期配置 X(px)
-input int    InpStartY      = 80;           // 初期配置 Y(px)
-input int    InpRowGap      = 50;           // 縦の間隔(px)
+input int    InpStartY      = 400;          // 初期配置 Y(px)
+input ENUM_BASE_CORNER InpAddBtnCorner = CORNER_LEFT_LOWER; // [＋]ボタンの表示位置(4隅)
+input int    InpAddBtnOffsetX = 0;          // [＋]ボタン X方向オフセット(px) ※微調整用、角補正とは別に加算
+input int    InpAddBtnOffsetY = 0;          // [＋]ボタン Y方向オフセット(px) ※微調整用、角補正とは別に加算
 
 //=== 定数 ============================================================
 #define PFX_ANCHOR  "DKMB21_A_"   // OBJ_TEXT (チャート座標アンカー・非表示)
@@ -59,6 +73,7 @@ input int    InpRowGap      = 50;           // 縦の間隔(px)
 #define CLOSE_W     24             // ×ボタン幅
 #define CLOSE_H     24             // ×ボタン高
 #define GRIP_W      20             // グリップ幅
+#define ROW_GAP     50              // 新規追加時の縦の間隔(px) ※旧InpRowGap固定値
 #define OFFSCR_X    -10000         // ★画面外退避用X(アンカーが可視範囲外のとき箱をここへ=非表示)
 
 //=== グローバル ======================================================
@@ -96,7 +111,7 @@ bool PixelToAnchor(int px, int py, datetime &t, double &price)
 }
 
 //+------------------------------------------------------------------+
-//| [＋]ボタンをチャート左下に配置                                   |
+//| [＋]ボタンを指定コーナー(4隅から選択)に配置                      |
 //+------------------------------------------------------------------+
 void DrawAddButton()
 {
@@ -104,10 +119,19 @@ void DrawAddButton()
    if(ObjectFind(0, nm) < 0)
       ObjectCreate(0, nm, OBJ_BUTTON, 0, 0, 0);
 
-   int chartH = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+   // ★角ごとの補正値(角ちょうどだと隠れる/被るため、内側へ寄せる基準オフセット)
+   //   左下: 上50・右20 / 左上: 下20・右20 / 右下: 上50・左60 / 右上: 下20・左60
+   //   InpAddBtnOffsetX/Y(初期値0,0)はこの基準値に対する追加の微調整分
+   bool isLower = (InpAddBtnCorner == CORNER_LEFT_LOWER || InpAddBtnCorner == CORNER_RIGHT_LOWER);
+   bool isRight = (InpAddBtnCorner == CORNER_RIGHT_LOWER || InpAddBtnCorner == CORNER_RIGHT_UPPER);
+   int baseY = isLower ? 50 : 20;
+   int baseX = isRight ? 60 : 20;
+   int marginX = InpAddBtnOffsetX + baseX;
+   int marginY = InpAddBtnOffsetY + baseY;
 
-   ObjectSetInteger(0, nm, OBJPROP_XDISTANCE,   5);
-   ObjectSetInteger(0, nm, OBJPROP_YDISTANCE,   chartH - 38);
+   ObjectSetInteger(0, nm, OBJPROP_CORNER,      InpAddBtnCorner);
+   ObjectSetInteger(0, nm, OBJPROP_XDISTANCE,   marginX);
+   ObjectSetInteger(0, nm, OBJPROP_YDISTANCE,   marginY);
    ObjectSetInteger(0, nm, OBJPROP_XSIZE,       44);
    ObjectSetInteger(0, nm, OBJPROP_YSIZE,       28);
    ObjectSetString (0, nm, OBJPROP_TEXT,        "＋");
@@ -116,7 +140,6 @@ void DrawAddButton()
    ObjectSetInteger(0, nm, OBJPROP_COLOR,       clrWhite);
    ObjectSetInteger(0, nm, OBJPROP_BGCOLOR,     InpBoxColor);
    ObjectSetInteger(0, nm, OBJPROP_BORDER_COLOR,InpBoxColor);
-   ObjectSetInteger(0, nm, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
    ObjectSetInteger(0, nm, OBJPROP_SELECTABLE,  false);
    ObjectSetInteger(0, nm, OBJPROP_HIDDEN,      true);
    ObjectSetInteger(0, nm, OBJPROP_ZORDER,      100);
@@ -356,8 +379,8 @@ void AddNewBox()
       int px2 = 0, py2 = 0;
       if(AnchorToPixel(t, pr, px2, py2))
       {
-         if(py2 + InpBoxH + InpRowGap - InpBoxH > bestPY)
-            bestPY = py2 + InpRowGap;
+         if(py2 + InpBoxH + ROW_GAP - InpBoxH > bestPY)
+            bestPY = py2 + ROW_GAP;
       }
    }
    int chartH = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);

@@ -3,45 +3,6 @@
 //|  dokakotu_dashboard_v8_4.html のデザインをMT5チャート上に         |
 //|  再現するパネル（第一段階：機能なし・表示のみ／固定サンプル値）   |
 //|                                                                    |
-//|  ■ 修正日: 2026-07-17(3回目)  修正内容                            |
-//|    ボラティリティ閾値の単位を修正: 画面表示は「Vol +22%」のように %|
-//|    なのに、プロパティのinput値は比率(0.22)のままで単位がズレて     |
-//|    調整しづらかったため、InpVolScoreLow/Mid/HighをPct付きに変更し、|
-//|    %表示とそのまま一致する数値で入力できるようにした。田島さんの   |
-//|    実測(22%=体感イエロー)を踏まえた提案値を初期値として採用:      |
-//|    グレー境界-40%(旧-20)/イエロー境界30%(旧0)/レッド境界120%(旧50)。|
-//|    以後の微調整は田島さんご自身で実測しながら行う想定。            |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-17  修正内容(ボラティリティをVolScore基準へ置換)|
-//|    ADX生値(本体インジbuf60)基準から、田島さんご提示のVolScore式へ |
-//|    置き換え: CurrentVol=EMA(High-Low,5)、VolScore=(CurrentVol-     |
-//|    EMA(CurrentVol,20))/EMA(CurrentVol,20)。「今の値幅」が「直近   |
-//|    20本の平均的な値幅」から何%乖離しているかを表す相対指標(0=普段 |
-//|    通り/正=拡大中/負=縮小中)。ComputeVolScore()新設(本体インジに |
-//|    依存せず自前でHigh/Lowから2段EMAを計算)。InpAdxVolLow/Mid/High |
-//|    をInpVolScoreLow(-0.20)/Mid(0.00)/High(0.50)に置き換え。見出し |
-//|    右横の表示も「ADX x.x」から「Vol +xx%」に変更。閾値は初期値で   |
-//|    あり、実測して調整が必要な想定(ADXの時と同様)。                |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-16  修正内容                                  |
-//|    ①ボラティリティの閾値初期値を変更: グレー境界29(旧22)/         |
-//|      イエロー境界36(旧40)。                                      |
-//|    ②「決済目安」メーターに実ロジックを実装(案②採用)。0%=エント   |
-//|      リー直後/InpMeterStagedPct%(既定65)=含み益がInpStagedTrig   |
-//|      PipsMirror(既定100、EA_15のInpStagedTrigPipsと同じ値にする   |
-//|      必要あり)に到達=段階決済モードへ切替/100%=実際の決済。       |
-//|      節目到達後(トレーリング監視中)はそれ以上の進捗を正確には      |
-//|      予測できないため、節目〜100%の中間で固定表示する(誇張しない  |
-//|      設計)。保有していない間は、直近決済が新しければ100%のまま    |
-//|      (次のエントリーまで、GET/LOSEメッセージと同じGVで判定)、     |
-//|      無ければ0%。GetOpenPositionProfitPips()新設。                |
-//|                                                                  |
-//|  ■ 修正日: 2026-07-15(8回目)  修正内容(indicator/EA 14→15対応確認) |
-//|    indicator/EAを14→15へバージョンアップしたのに伴う確認。          |
-//|    本ファイルのFindDokaKotsuHandle()は接頭辞"DokaKotsu_indicator_" |
-//|    でチャート上を走査する設計(InpIndicatorPrefix)のため、バージョン|
-//|    番号を問わず自動検出される。コード変更は不要(念のため確認のみ)。|
-//|                                                                  |
 //|  ■ 修正日: 2026-07-15(7回目)  修正内容                            |
 //|    ①「稼働中」→「EA稼働中」に文言変更。約1.6秒周期でゆっくり      |
 //|      点滅するように変更(GetTickCount()の位相だけを見て背景色に    |
@@ -449,13 +410,9 @@ string g_indNameSeen = "";
 
 //--- ★2026-07-13追加: ボラティリティ(ATR)の3段階しきい値(pips)
 //--- ★2026-07-15変更: ボラティリティ判定をATR(pips)からADX生値(本体インジbuf60)基準へ変更
-//--- ★2026-07-17変更: ボラティリティ判定をADX基準からVolScore基準(EMA(High-Low,5)の20本平均からの乖離率)へ置き換え
-input double InpVolScoreLowPct    = -40.0;  // これ未満=ボラ縮小(グレー・動かず)。%表示(画面の「Vol +xx%」と同じ単位) ★2026-07-17(3回目)変更: -20→-40
-input double InpVolScoreMidPct    = 30.0;   // これ未満=イエロー(普段並み)。%表示 ★2026-07-17(3回目)変更: 0→30
-input double InpVolScoreHighPct   = 120.0;  // これ未満=ライム。これ以上=レッド。%表示 ★2026-07-17(3回目)変更: 50→120
-//--- ★2026-07-16追加: 「決済目安」メーター(0%=エントリー直後/100%=決済)。案②=段階決済モード切替の節目を基準にする
-input double InpStagedTrigPipsMirror = 100.0;  // EA_15のInpStagedTrigPipsと同じ値にしてください(段階決済モードへ切り替わる含み益pips)
-input double InpMeterStagedPct       = 65.0;   // 上記の節目に到達した時、メーターを何%の位置に置くか
+input double InpAdxVolLow    = 22.0;  // これ未満=ボラ無し(グレー・動かず) ★2026-07-15(6回目)変更: 20→22
+input double InpAdxVolMid    = 40.0;  // これ未満=イエロー ★2026-07-15(5回目)変更: 2.0→40
+input double InpAdxVolHigh   = 80.0;  // これ未満=ライム。これ以上=レッド ★2026-07-15(5回目)変更: 50→80
 
 //--- ★2026-07-13追加: DR(日次レンジ)の★段階しきい値(pips、Dashboard共通のpoint*10換算)
 input int InpDrSmall = 400;    // これ以下=★ ★2026-07-15(6回目)変更: 150→400
@@ -508,72 +465,6 @@ bool IsUsCalendarPresent()
         }
      }
    return false;
-  }
-
-//+------------------------------------------------------------------+
-//| ★2026-07-16追加: 「決済目安」メーター用。保有中ポジションの含み益 |
-//|   をpipsで返す(無ければfalse)。このシンボル・このEAのマジックの   |
-//|   ポジションだけを対象にする(既存のpos_state判定と同じ絞り込み)。 |
-//+------------------------------------------------------------------+
-bool GetOpenPositionProfitPips(double &profitPips)
-  {
-   profitPips = 0.0;
-   for(int k=PositionsTotal()-1; k>=0; k--)
-     {
-      ulong tk=PositionGetTicket(k);
-      if(tk==0) continue;
-      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
-      double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-      double pipSize = _Point*10;   // XAUUSD慣習(他のブロックと統一)
-      if(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY)
-         profitPips = (SymbolInfoDouble(_Symbol,SYMBOL_BID) - entry) / pipSize;
-      else
-         profitPips = (entry - SymbolInfoDouble(_Symbol,SYMBOL_ASK)) / pipSize;
-      return true;
-     }
-   return false;
-  }
-
-//+------------------------------------------------------------------+
-//| ★2026-07-17追加: 「ボラティリティ」ゲージをADX基準からVolScore基準へ |
-//|   置き換え。田島さんご提示の式をそのまま実装:                     |
-//|     CurrentVol = EMA(High-Low, 5)                                 |
-//|     VolScore   = (CurrentVol - EMA(CurrentVol, 20)) / EMA(CurrentVol, 20) |
-//|   「今の値幅」が「直近20本の平均的な値幅」から何%乖離しているかを  |
-//|   返す(0=普段通り/正=拡大中/負=縮小中)。MQL5のiMAはHigh-Lowを     |
-//|   直接の対象価格にできないため、値幅配列を作って手計算のEMAを      |
-//|   2段階で適用する。                                               |
-//+------------------------------------------------------------------+
-double ComputeVolScore()
-  {
-   int need = 80;   // EMA(20)のEMA(5)が収束するのに十分な本数を確保
-   double hi[], lo[];
-   if(CopyHigh(_Symbol,_Period,0,need,hi) < need) return 0.0;
-   if(CopyLow(_Symbol,_Period,0,need,lo)  < need) return 0.0;
-   ArraySetAsSeries(hi,false);   // 0=古い→末尾=最新の時系列順に統一(EMAを古い側から積むため)
-   ArraySetAsSeries(lo,false);
-
-   double rng[];
-   ArrayResize(rng, need);
-   for(int i=0;i<need;i++) rng[i] = hi[i]-lo[i];
-
-   double vol5[];
-   ArrayResize(vol5, need);
-   double k5 = 2.0/(5.0+1.0);
-   vol5[0] = rng[0];
-   for(int i=1;i<need;i++) vol5[i] = rng[i]*k5 + vol5[i-1]*(1.0-k5);
-
-   double vol20[];
-   ArrayResize(vol20, need);
-   double k20 = 2.0/(20.0+1.0);
-   vol20[0] = vol5[0];
-   for(int i=1;i<need;i++) vol20[i] = vol5[i]*k20 + vol20[i-1]*(1.0-k20);
-
-   double lastVol5  = vol5[need-1];
-   double lastVol20 = vol20[need-1];
-   if(lastVol20 <= 0.0) return 0.0;
-   return (lastVol5 - lastVol20) / lastVol20;
   }
 
 //+------------------------------------------------------------------+
@@ -784,24 +675,27 @@ void CreatePanel()
    ObjectDelete(0,PFX+"closeall");   // ★2026-07-13(2回目): 全決済ボタンを撤去(過去に作られた分も消す)
    curY+=dirboxH+(int)(24*sc);
 
-   // ボラティリティ（★2026-07-17変更: ADX生値基準→VolScore基準に置き換え。
-   //   VolScore=(EMA(High-Low,5)-EMA(それ,20))/EMA(それ,20)。「普段の値幅」からの乖離率(%)。
-   //   4段階: <InpVolScoreLowPct=グレー(縮小)/<InpVolScoreMidPct=イエロー/<InpVolScoreHighPct=ライム/以上=レッド)
-   //   ★2026-07-17(2回目)修正: 閾値inputを%表示に統一。画面の「Vol +xx%」の数字とプロパティの数値が
-   //   そのまま一致するようにした(従来は画面%・input比率で単位がズレており調整しづらかった)。
-   double volScore = ComputeVolScore();
-   double volScorePct = volScore*100.0;
+   // ボラティリティ（★2026-07-15変更: ATR(pips)基準→ADX生値(本体インジbuf60)基準に変更。
+   //   4段階: <1.6=グレー(動かず)/<2.0=イエロー/<50=ライム/>=50=レッド)
+   // --- 本体インジのADX生値(buf60)を先に読む(見出し右横に実数値を出すため) ---
+   double adxVal = 0.0;
+   if(g_indHandle != INVALID_HANDLE)
+     {
+      double adxBuf[];
+      if(CopyBuffer(g_indHandle, 60, 1, 1, adxBuf) > 0)
+         adxVal = adxBuf[0];
+     }
    CreateLabelText("wavelbl",x+pad,curY,"ボラティリティ",COL_GRAY,7);
-   CreateLabelText("wavevalnow",x+pad+62,curY,StringFormat("Vol %+.0f%%",volScorePct),COL_GRAY2,7);
+   CreateLabelText("wavevalnow",x+pad+62,curY,StringFormat("ADX %.1f",adxVal),COL_GRAY2,7);   // ★2026-07-15(4回目)追加
    curY+=(int)(20*sc);
    int waveboxH=(int)(36*sc);
    CreateRectLabel("wavebox",x+pad,curY,innerW,waveboxH,COL_CELL,COL_BORDER);
      {
       string mode; color baseCol; double amp, base;
-      if(volScorePct < InpVolScoreLowPct)        { mode="grey";   baseCol=COL_GRAY2;  amp=0.16; base=0.08; }
-      else if(volScorePct < InpVolScoreMidPct)   { mode="yellow"; baseCol=COL_YELLOW; amp=0.38; base=0.18; }
-      else if(volScorePct < InpVolScoreHighPct)  { mode="lime";   baseCol=COL_LIME;   amp=0.60; base=0.30; }
-      else                                  { mode="red";    baseCol=COL_RED;   amp=0.90; base=0.48; }
+      if(adxVal < InpAdxVolLow)        { mode="grey";   baseCol=COL_GRAY2;  amp=0.16; base=0.08; }
+      else if(adxVal < InpAdxVolMid)   { mode="yellow"; baseCol=COL_YELLOW; amp=0.38; base=0.18; }
+      else if(adxVal < InpAdxVolHigh)  { mode="lime";   baseCol=COL_LIME;   amp=0.60; base=0.30; }
+      else                             { mode="red";    baseCol=COL_RED;   amp=0.90; base=0.48; }
 
       int barCount=16;
       int barAreaW=innerW-8;
@@ -935,38 +829,17 @@ void CreatePanel()
    ObjectDelete(0,PFX+"entrypct");
 
    // ★2026-07-15(4回目)変更: 「決済目安」と「INしました」ブロックの表示順を入替(決済目安を先に)
-   // 決済目安（★2026-07-16変更: 案②=段階決済モード切替の節目を基準にした実ロジックへ差し替え。
-   //   0%=エントリー直後/InpMeterStagedPct%=含み益がInpStagedTrigPipsMirrorに到達(段階決済モードへ切替)/
-   //   100%=実際の決済。節目到達後はトレーリングの経過を厳密には予測できないため、節目〜100%の中間で
-   //   固定表示する(「決済判断の監視フェーズに入った」ことを示す簡易表現。ウソをつかない設計)。
-   //   保有していない時は、直近決済があれば100%のまま(次のエントリーまで)、無ければ0%。
+   // 決済目安（★2026-07-13変更: セグメント10分割→スクイーズ収束度と同じ2色バー+針のデザインに差し替え。
+   //   ロジックは後日いただく予定のため、今回は針位置を固定値(0.22)のまま仮表示。
    CreateLabelText("ailbl",x+pad,curY,"決済目安",COL_GRAY,7);
    curY+=(int)(20*sc);
    int segH=(int)(9*sc);
      {
       int barX=x+pad;
       int barW=innerW;
-      double convVal;   // 0.0〜1.0
-      double profitPips=0.0;
-      bool posOpen = GetOpenPositionProfitPips(profitPips);
-      if(posOpen)
-        {
-         double stagedFrac = InpMeterStagedPct/100.0;
-         if(profitPips < InpStagedTrigPipsMirror)
-            convVal = MathMax(0.0, profitPips/InpStagedTrigPipsMirror) * stagedFrac;
-         else
-            convVal = stagedFrac + (1.0-stagedFrac)*0.5;   // 節目到達後(トレーリング監視中)は中間で固定
-        }
-      else
-        {
-         // ★直近決済がまだ新しければ100%のまま表示(GET/LOSEメッセージと同じ鮮度判定を流用)
-         string gvTime = StringFormat("DK_EA_LASTCLOSE_TIME_%d", InpMagic);
-         bool recentClose = GlobalVariableCheck(gvTime) && (datetime)GlobalVariableGet(gvTime) > 0
-                             && !showMsgIn;   // showMsgInがtrueなら別途保有中扱いなのでここには来ないはずだが念のため
-         convVal = (recentClose && (showMsgGet || showMsgLose)) ? 1.0 : 0.0;
-        }
-      double convThresh=InpMeterStagedPct/100.0;   // 節目の区切り線位置(メーターと同じ基準に統一)
-      double needlePos = convVal; if(needlePos>1.0) needlePos=1.0; if(needlePos<0.0) needlePos=0.0;
+      double convVal=0.22;      // ★仮値。ロジック未実装(後日差し替え予定)
+      double convThresh=0.30;   // 閾値(30%位置に区切り線)
+      double needlePos = convVal/1.0; if(needlePos>1.0) needlePos=1.0; if(needlePos<0.0) needlePos=0.0;
       int splitX=barX+(int)(barW*convThresh);
       CreateRectLabel("sqzbg_l",barX,curY,splitX-barX,segH,C'90,45,45',C'90,45,45',1);              // 圧縮ゾーン(暗い赤)
       CreateRectLabel("sqzbg_r",splitX,curY,barX+barW-splitX,segH,C'45,90,50',C'45,90,50',1);        // ボラありゾーン(暗い緑)
@@ -974,7 +847,7 @@ void CreatePanel()
       int needleX=barX+(int)(barW*needlePos);
       CreateRectLabel("sqzneedle",needleX-1,curY,3,segH,clrWhite,clrWhite,3);                        // 現在値の針
       CreateLabelText("sqzlbl_l",x+pad,curY+segH+2,"エントリー",C'200,122,122',7);
-      CreateLabelText("sqzlbl_m",x+pad+innerW/2,curY+segH+2,StringFormat("%.0f%%",InpMeterStagedPct),COL_GRAY,7,"Arial",ANCHOR_UPPER);
+      CreateLabelText("sqzlbl_m",x+pad+innerW/2,curY+segH+2,"50%",COL_GRAY,7,"Arial",ANCHOR_UPPER);
       CreateLabelText("sqzlbl_r",rightEdge,curY+segH+2,"決済",C'106,176,106',7,"Arial",ANCHOR_RIGHT_UPPER);
      }
    curY+=segH+(int)(24*sc);

@@ -4,6 +4,15 @@
 //|   並べて表示する。価格軸に縛られないので、スクロール/ズームで    |
 //|   位置が安定し、画面から消えない。                               |
 //|   背景色・文字色・文字サイズを入力パラメータで選択できる。        |
+//|                                                                  |
+//|  ■ 修正日: 2026-07-13  修正内容(診断用ビルド)                    |
+//|    表示が消える不具合の原因を特定するため、Print診断ログを追加。 |
+//|    ①OnInit時点のウィンドウ番号、②毎回の再描画で実際に何本の    |
+//|    ラベルを作れた/失敗したか、③ChartWindowFind()が-1を返した   |
+//|    場合の検知、をExperts/journalタブに出力するようにした。       |
+//|    あわせて、背景描画とラベル作成で別々にChartWindowFind()を     |
+//|    呼んでいたのを1箇所に統一(値のズレの可能性を除去)。          |
+//|    見た目のロジック(何を描画するか)自体は変更していない。       |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
 #property version   "1.30"
@@ -33,6 +42,9 @@ int OnInit()
    BG_NAME = PFX + "background";
    IndicatorSetString(INDICATOR_SHORTNAME, "JST目盛り");
    IndicatorSetInteger(INDICATOR_DIGITS, 0);
+   // ★診断用(2026-07-13追加): OnInit時点でのウィンドウ番号を記録。
+   //   これが-1や意図しない番号(0=メインチャート等)になっていないか確認するため。
+   Print("[JSTsub] OnInit win=", ChartWindowFind(), " chart_windows=", (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL));
    return(INIT_SUCCEEDED);
 }
 
@@ -66,7 +78,7 @@ bool IsSummerTimeAt(datetime t)
 //+------------------------------------------------------------------+
 //| サブウィンドウ全体を覆う背景矩形を描画/更新する                    |
 //+------------------------------------------------------------------+
-void DrawBackground()
+void DrawBackground(int win)
 {
    if(InpBgColor == clrNONE)
      {
@@ -74,12 +86,14 @@ void DrawBackground()
       return;
      }
 
-   int  win        = ChartWindowFind();
    long chartWidth = ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
    long winHeight  = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS, win);
 
    if(ObjectFind(0, BG_NAME) < 0)
-      ObjectCreate(0, BG_NAME, OBJ_RECTANGLE_LABEL, win, 0, 0);
+   {
+      if(!ObjectCreate(0, BG_NAME, OBJ_RECTANGLE_LABEL, win, 0, 0))
+         Print("[JSTsub] 背景ObjectCreate失敗 win=", win, " err=", GetLastError());
+   }
 
    ObjectSetInteger(0, BG_NAME, OBJPROP_XDISTANCE,  0);
    ObjectSetInteger(0, BG_NAME, OBJPROP_YDISTANCE,  0);
@@ -106,7 +120,10 @@ void OnChartEvent(const int id,
                    const string &sparam)
 {
    if(id == CHARTEVENT_CHART_CHANGE)
-      DrawBackground();
+   {
+      int win = ChartWindowFind();
+      if(win >= 0) DrawBackground(win);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -123,12 +140,24 @@ int OnCalculate(const int rates_total,
 {
    if(rates_total < 5) return(0);
 
+   // ★2026-07-13修正: ChartWindowFind()をここで1回だけ取得し、以降はこの値を使い回す
+   //   (従来は背景描画とラベル作成でそれぞれ別々に呼んでおり、タイミングによって
+   //   違う値を拾う/無効値(-1)を拾う可能性があった)。
+   int win = ChartWindowFind();
+   if(win < 0)
+   {
+      // ★診断用: ウィンドウが見つからない場合はここで必ずログに残す。
+      //   これが出続けているなら「サブウィンドウとして認識されていない」ことが確定する。
+      Print("[JSTsub] ChartWindowFind()が-1を返しました。再試行します(rates_total=", rates_total, ")");
+      return(prev_calculated); // g_lastBar/g_lastOffを更新せず、次のティックで必ず再挑戦する
+   }
+
    int off = IsSummerTimeAt(TimeCurrent()) ? 6 : 7;      // JST = server + off(現在時刻ベース、再描画トリガー用)
    datetime curBar = time[rates_total-1];
 
    // 背景色はキャッシュ判定と切り離し、毎回(パラメータ変更直後も含め)必ず
    // 最新の色・サイズに更新する。ObjectSetIntegerは軽い処理なので負荷は問題ない。
-   DrawBackground();
+   DrawBackground(win);
 
    // ★負荷対策:毎ティックではなく「新しい足が出来た時」だけ引き直す。
    //   (夏/冬でオフセットが変わった時・初回/全再計算も引き直す)
@@ -140,10 +169,11 @@ int OnCalculate(const int rates_total,
 
    // 引き直す時だけ、自分のラベルを全消去してから作る(重複防止)
    ObjectsDeleteAll(0, PFX);
-   DrawBackground();   // 上のObjectsDeleteAllで消えた背景をここで再度描き直す
+   DrawBackground(win);   // 上のObjectsDeleteAllで消えた背景をここで再度描き直す
 
    int begin = MathMax(0, rates_total - InpAxisBars);
    int lbl   = 0;
+   int created = 0, failed = 0;   // ★診断用: 実際に何本作れたか/失敗したかを数える
    string wd[7] = {"日","月","火","水","木","金","土"};
 
    // 直前に表示した「年月日」を保持。これが変わった瞬間(=週末の飛びを含む
@@ -185,7 +215,15 @@ int OnCalculate(const int rates_total,
 
       // サブ窓(自分のウィンドウ)に OBJ_TEXT を1個だけ作る。
       //   座標 = (その足の時刻, 縦InpYPos)。作成時に正しく指定する。
-      ObjectCreate(0, nm, OBJ_TEXT, ChartWindowFind(), time[i], InpYPos);
+      //   ★2026-07-13修正: OnCalculate冒頭で確定させたwinを使い回す(従来はここで毎回
+      //   ChartWindowFind()を呼び直しており、値がズレる余地があった)。失敗したら診断ログを出す。
+      if(!ObjectCreate(0, nm, OBJ_TEXT, win, time[i], InpYPos))
+      {
+         failed++;
+         if(failed <= 5) Print("[JSTsub] ラベルObjectCreate失敗 name=", nm, " win=", win, " err=", GetLastError());
+         continue;
+      }
+      created++;
       ObjectSetString (0, nm, OBJPROP_TEXT, txt);
       ObjectSetInteger(0, nm, OBJPROP_COLOR, InpAxisColor);
       ObjectSetInteger(0, nm, OBJPROP_FONTSIZE, InpFontSize);
@@ -193,6 +231,11 @@ int OnCalculate(const int rates_total,
       ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, nm, OBJPROP_HIDDEN, true);
    }
+
+   // ★診断用: この再描画で何本のラベルを作れた/失敗したかを必ず1行残す。
+   //   created=0が続くようならbegin~rates_totalの範囲やInpAxisBarsの設定を疑う。
+   Print("[JSTsub] 再描画完了 win=", win, " created=", created, " failed=", failed,
+         " begin=", begin, " rates_total=", rates_total);
 
    ChartRedraw(0);
    return(rates_total);

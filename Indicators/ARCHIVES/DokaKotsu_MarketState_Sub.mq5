@@ -1,18 +1,15 @@
 //+------------------------------------------------------------------+
 //| DokaKotsu_MarketState_Sub.mq5                                    |
-//| ★2026-07-12i修正: 参照先インジをDokaKotsu_indicator_13→_14に更新 |
-//|   (メイン指標が13→14へバージョンアップされたため。表示ロジック   |
-//|   自体は変更なし)。                                              |
 //| ★2026-07-10e新規作成: 相場状態(SQ/TR/SP)のサブウィンドウ表示専用。 |
-//|   DokaKotsu_indicator_14のbuf57(BufMarketState: 1=SQ/2=TR/3=SP)  |
+//|   DokaKotsu_indicator_13のbuf57(BufMarketState: 1=SQ/2=TR/3=SP)  |
 //|   をiCustomで参照し、■(幅5のヒストグラム)で色分け表示するだけの   |
 //|   表示専用インジケーター。判定ロジックは一切持たない(WYSIWYG原則: |
-//|   ロジックは全てindicator_14側。ここは色を付けるだけ)。          |
+//|   ロジックは全てindicator_13側。ここは色を付けるだけ)。          |
 //|                                                                   |
 //|   色: SQ=Gray / TR=RGB(34,116,128) / SP=Lime                     |
 //|                                                                   |
 //|   ★注意: iCustom呼び出しはメイン指標の既定input値を使用する。     |
-//|   チャート上のDokaKotsu_indicator_14を既定値から変更して運用して  |
+//|   チャート上のDokaKotsu_indicator_13を既定値から変更して運用して  |
 //|   いる場合、このサブ表示とは判定がズレる可能性がある(既存の       |
 //|   Wave_Sub/DokaKotsu_HeikinAshi_2と同じ「自己計算/既定値参照」の   |
 //|   トレードオフを踏襲)。厳密に一致させたい場合はInpIndicatorParams  |
@@ -21,7 +18,7 @@
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
 #property version   "1.00"
-#property description "相場状態(SQ/TR/SP)のサブウィンドウ帯表示。DokaKotsu_indicator_14のbuf57を参照する表示専用インジ。"
+#property description "相場状態(SQ/TR/SP)のサブウィンドウ帯表示。DokaKotsu_indicator_13のbuf57を参照する表示専用インジ。"
 
 #property indicator_separate_window
 #property indicator_buffers 2
@@ -31,7 +28,7 @@
 #property indicator_width1  5
 #property indicator_color1  clrGray, clrYellow, clrLime   // 色インデックス0=SQ,1=TR,2=SP ★2026-07-12: TR色をYellowに変更
 
-input string InpIndicatorName = "DokaKotsu_indicator_14"; // 参照する親指標のファイル名(拡張子なし)
+input string InpIndicatorName = "DokaKotsu_indicator_13"; // 参照する親指標のファイル名(拡張子なし)
 
 double BufVal[];    // ヒストグラムの値(常に1固定=帯の高さを揃えるだけ)
 double BufColor[];  // 色インデックス(0=SQ/1=TR/2=SP)
