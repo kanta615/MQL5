@@ -33,9 +33,17 @@
 //|          (2026-07-15: PPI(生産者物価指数)をCPIと同様に分類対象へ追加。          |
 //|           ClassifyEvent()にPPI判定、CategoryCode()にPPIマッピングを追加。       |
 //|           EA_13側もEV_PPI追加・CPIと同じ発表前時間窓(InpCpiNfpHoursBefore)で対応)。|
+//|          (2026-07-16: 小売売上高(Retail Sales)をCPI/PPIと同様に    |
+//|           分類対象へ追加。ClassifyEvent()に判定、CategoryCode()に |
+//|           RETAILマッピングを追加。EA_15側もEV_RETAIL追加・共通の  |
+//|           InpEvStopHourJST起点ルールで対応)。                     |
+//|          (2026-07-16(2回目): 小売売上高の内部ラベルを英語コード     |
+//|           "RETAIL"から最初から日本語「小売売上高」に変更。         |
+//|           JSON出力(category)・DB・Python側すべてが自動的に         |
+//|           「小売売上高」になり、翻訳/変換処理が不要になる)。       |
 //+------------------------------------------------------------------+
 #property copyright   "Custom Indicator"
-#property version     "1.72"
+#property version     "1.74"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -208,6 +216,12 @@ string ClassifyEvent(const string rawName)
    if(StringFind(n, "PPI") >= 0 || StringFind(n, "PRODUCER PRICE") >= 0 ||
       StringFind(rawName, "生産者物価") >= 0)
       return "PPI";
+   //--- ★2026-07-16追加: 小売売上高。他指標と同じ扱いで別カテゴリとして分類する
+   //    ★2026-07-16(2回目)修正: 英語コード"RETAIL"ではなく、最初から日本語「小売売上高」を返す。
+   //    こうすることでJSON出力(category)・DB・Python側すべてが自動的に「小売売上高」になる
+   //    (CategoryCodeでの変換不要・二重管理の回避)。
+   if(StringFind(n, "RETAIL SALES") >= 0 || StringFind(rawName, "小売売上高") >= 0)
+      return "小売売上高";
    //--- ISM(本物の景況指数のみ。"製造業受注/給与"は対象外)
    if(StringFind(n, "ISM") >= 0 || StringFind(n, "MANUFACTURING PMI") >= 0 ||
       StringFind(n, "PURCHASING MANAGERS") >= 0 ||
@@ -643,6 +657,7 @@ string CategoryCode(const string label)
    if(label == "ISM")        return "ISM";
    if(label == "CPI")        return "CPI";
    if(label == "PPI")        return "PPI";   // ★2026-07-15追加
+   if(label == "小売売上高") return "小売売上高";   // ★2026-07-16(2回目)修正: RETAIL→日本語表記に統一
    if(label == "GDP")        return "GDP";
    if(label == "PCE")        return "PCE";
    if(label == "FOMC")       return "FOMC";

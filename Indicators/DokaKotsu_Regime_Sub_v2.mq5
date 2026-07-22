@@ -16,10 +16,21 @@
 //|   いる場合、このサブ表示とは判定がズレる可能性がある(既存の       |
 //|   MarketState_Sub/Wave_Subと同じ「自己計算/既定値参照」の         |
 //|   トレードオフを踏襲)。                                          |
+//|                                                                   |
+//|  ■ 修正日: 2026-07-21  修正内容                                  |
+//|    InpIndicatorNameの既定値を固定文字列"DokaKotsu_indicator_14"   |
+//|    から空文字("")に変更。空の場合は同じチャートのメインウィンドウ |
+//|    に乗っているインジケーターを走査し、名前が                    |
+//|    "DokaKotsu_indicator_"で始まるものを自動的に見つけて使う       |
+//|    (FindMainIndicatorName)。本体が_14でも_15でも_20でも、          |
+//|    バージョン番号に関わらずチャートに乗っている実物をそのまま       |
+//|    参照するため、本体の版上げのたびにここを手動修正する必要が      |
+//|    なくなる。InpIndicatorNameを明示的に指定した場合は従来通り      |
+//|    そちらを優先(手動指定・デバッグ用の逃げ道として残す)。          |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.00"
-#property description "BB×KCレジーム(圧縮/解放)のサブウィンドウ表示。DokaKotsu_indicator_14のbuf53/buf58を参照する表示専用インジ。"
+#property version   "1.01"
+#property description "BB×KCレジーム(圧縮/解放)のサブウィンドウ表示。DokaKotsu_indicator_XX(本体)のbuf53/buf58を参照する表示専用インジ。参照先はチャートから自動検出。"
 
 #property indicator_separate_window
 #property indicator_buffers 3
@@ -34,13 +45,31 @@
 #property indicator_width2  1
 #property indicator_label2  "BB/KC圧縮比率"
 
-input string InpIndicatorName = "DokaKotsu_indicator_14"; // 参照する親指標のファイル名(拡張子なし)
+input string InpIndicatorName = ""; // 参照する親指標のファイル名(拡張子なし)。空="DokaKotsu_indicator_"で始まるものをチャートから自動検出
 
 double BufVal[];     // ヒストグラムの値(常に1固定=帯の高さを揃えるだけ)
 double BufColor[];   // 色インデックス(0=圧縮/1=解放)
 double BufRatio[];   // BB/KC圧縮比率(1.0=基準線。これを上に抜けた瞬間が解放)
 
 int hMain = INVALID_HANDLE;
+
+//+------------------------------------------------------------------+
+//| ★2026-07-21追加: 同じチャートのメインウィンドウ(サブウィンドウ0)  |
+//|   に乗っているインジケーターの中から、名前が"DokaKotsu_indicator_" |
+//|   で始まるものを探して返す(バージョン番号に関わらず動くように)。  |
+//|   複数見つかった場合は最初に見つかったものを使う。                |
+//+------------------------------------------------------------------+
+string FindMainIndicatorName()
+{
+   int total = ChartIndicatorsTotal(0, 0);   // 0=メインウィンドウ
+   for(int i = 0; i < total; i++)
+   {
+      string nm = ChartIndicatorName(0, 0, i);
+      if(StringFind(nm, "DokaKotsu_indicator_") == 0)
+         return nm;
+   }
+   return "";
+}
 
 int OnInit()
 {
@@ -62,11 +91,24 @@ int OnInit()
    IndicatorSetInteger(INDICATOR_LEVELCOLOR, 0, clrDimGray);
    IndicatorSetInteger(INDICATOR_LEVELSTYLE, 0, STYLE_DOT);
 
-   // ★親指標(DokaKotsu_indicator_14)をiCustomで参照。既定input値を使用(注意書き参照)。
-   hMain = iCustom(_Symbol, _Period, InpIndicatorName);
+   // ★2026-07-21変更: InpIndicatorNameが空なら自動検出、指定があればそちらを優先。
+   string indName = InpIndicatorName;
+   if(indName == "")
+   {
+      indName = FindMainIndicatorName();
+      if(indName == "")
+      {
+         Print("[Regime_Sub] チャート上に\"DokaKotsu_indicator_\"で始まるインジが見つかりません。",
+               "本体インジをこのチャートに追加してください(またはInpIndicatorNameで直接指定)。");
+         return(INIT_FAILED);
+      }
+      Print("[Regime_Sub] 参照する本体インジを自動検出しました: ", indName);
+   }
+
+   hMain = iCustom(_Symbol, _Period, indName);
    if(hMain == INVALID_HANDLE)
    {
-      Print("[Regime_Sub] iCustomハンドル作成失敗。InpIndicatorName=", InpIndicatorName, " を確認してください。");
+      Print("[Regime_Sub] iCustomハンドル作成失敗。参照名=", indName, " を確認してください。");
       return(INIT_FAILED);
    }
    return(INIT_SUCCEEDED);

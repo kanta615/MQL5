@@ -7,37 +7,6 @@
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
 //|                                                                    |
-//|  ■ 修正日: 2026-07-21(5回目)  修正内容                            |
-//|    日付(MM/DD、例:0722)表示を削除。最高値/安値更新中でない場合は   |
-//|    ラベル自体を非表示にするよう変更(ObjectDeleteで消去)。          |
-//|    「最高値更新中」「最安値更新中」は実際に更新している時だけ表示。 |
-//|                                                                    |
-//|  ■ 修正日: 2026-07-21(4回目)  修正内容                            |
-//|    水色の固定サンプル値「+345 pips」(totalval)を削除。totallbl     |
-//|    (グレーの日付/最高値・最安値更新中)の文字が隠れて見えづらいという|
-//|    ご指摘のため。totallblの表示位置もrightEdge-72→rightEdge-8へ     |
-//|    移動し、空いたスペースを使って右詰めで表示するよう調整。         |
-//|                                                                    |
-//|  ■ 修正日: 2026-07-21(3回目)  修正内容(v5→v6: 日次レンジ・ファイル名) |
-//|    ①日次レンジ表示の書式を「★★DR893」→「★★ 893」に変更(DR削除・  |
-//|    スペース挿入)。②日次レンジの★段階を600未満=★(グレー)/600以上   |
-//|    1000未満=★★(イエロー)/1000以上=★★★(ライム)に変更。色を        |
-//|    上位足方向の色から日次レンジ専用の色(drCol)に分離。              |
-//|    ③ファイル名を DokaKotsu_Dashboard_v5.mq5 → DokaKotsu_Dashboard.mq5|
-//|    に変更(拡張子前がショートネームと一致し、チャート左上のインジ    |
-//|    リスト表示が「ファイル名(ショートネーム)」の二重表記にならない   |
-//|    ようにするため)。以後のバージョン管理はヘッダー内の更新履歴のみ  |
-//|    で行う(ファイル名にはバージョン番号を付けない)。                 |
-//|    ④TOTAL欄のラベルを本日の高値/安値更新中判定に対応。現在値が      |
-//|    本日高値(またはその近傍)なら「最高値更新中」、本日安値(または    |
-//|    その近傍)なら「最安値更新中」をライムで表示。どちらでもない時は  |
-//|    従来の固定文字列「TOTAL」の代わりに日付(MM/DD)を表示する。       |
-//|                                                                    |
-//|  ■ 修正日: 2026-07-21(2回目)  修正内容(v4→v5: VolScore閾値変更)   |
-//|    グレー境界-40%→10%/イエロー境界30%→40%に変更(レッド境界120%は  |
-//|    変更なし)。DokaKotsu_VolScore_Sub.mq5(表示専用サブチャート)も   |
-//|    同じ値に統一。                                                  |
-//|                                                                    |
 //|  ■ 修正日: 2026-07-21  修正内容(v3→v4: レイヤー透け・黒点滅の根治) |
 //|    ①(透け問題の根治)OBJPROP_ZORDERは描画順を制御しない仕様        |
 //|      (クリック優先度のみ)。描画順は「オブジェクトの作成順」で      |
@@ -565,16 +534,16 @@ string g_indNameSeen = "";
 //--- ★2026-07-13追加: ボラティリティ(ATR)の3段階しきい値(pips)
 //--- ★2026-07-15変更: ボラティリティ判定をATR(pips)からADX生値(本体インジbuf60)基準へ変更
 //--- ★2026-07-17変更: ボラティリティ判定をADX基準からVolScore基準(EMA(High-Low,5)の20本平均からの乖離率)へ置き換え
-input double InpVolScoreLowPct    = 10.0;   // これ未満=ボラ縮小(グレー・動かず)。%表示(画面の「Vol +xx%」と同じ単位) ★2026-07-21(2回目)変更: -40→10
-input double InpVolScoreMidPct    = 40.0;   // これ未満=イエロー(普段並み)。%表示 ★2026-07-21(2回目)変更: 30→40
-input double InpVolScoreHighPct   = 120.0;  // これ未満=ライム。これ以上=レッド。%表示
+input double InpVolScoreLowPct    = -40.0;  // これ未満=ボラ縮小(グレー・動かず)。%表示(画面の「Vol +xx%」と同じ単位) ★2026-07-17(3回目)変更: -20→-40
+input double InpVolScoreMidPct    = 30.0;   // これ未満=イエロー(普段並み)。%表示 ★2026-07-17(3回目)変更: 0→30
+input double InpVolScoreHighPct   = 120.0;  // これ未満=ライム。これ以上=レッド。%表示 ★2026-07-17(3回目)変更: 50→120
 //--- ★2026-07-16追加: 「決済目安」メーター(0%=エントリー直後/100%=決済)。案②=段階決済モード切替の節目を基準にする
 input double InpStagedTrigPipsMirror = 100.0;  // EA_15のInpStagedTrigPipsと同じ値にしてください(段階決済モードへ切り替わる含み益pips)
 input double InpMeterStagedPct       = 65.0;   // 上記の節目に到達した時、メーターを何%の位置に置くか
 
 //--- ★2026-07-13追加: DR(日次レンジ)の★段階しきい値(pips、Dashboard共通のpoint*10換算)
-input int InpDrSmall = 600;    // これ未満=★(グレー) ★2026-07-21変更: 400→600、閾値の意味を「未満/以上」に統一
-input int InpDrLarge = 1000;   // これ以上=★★★(ライム)。600以上1000未満は★★(イエロー) ★2026-07-21変更: 「未満/以上」に統一
+input int InpDrSmall = 400;    // これ以下=★ ★2026-07-15(6回目)変更: 150→400
+input int InpDrLarge = 1000;   // これ以下=★★。これより大きい=★★★ ★2026-07-15(6回目)変更: 300→1000
 
 //+------------------------------------------------------------------+
 //| ★2026-07-13追加: チャートに実際に貼られている本体インジを          |
@@ -952,22 +921,8 @@ void CreatePanel()
       if(!blinkOn) pauseCol = COL_BG;
      }
    CreateLabelText("pausestate",x+pad+8+btnSize*2+16,curY+(int)(9*sc),pauseTxt,pauseCol,7);
-   // ★2026-07-21(5回目)修正: 日付(MM/DD)表示を削除。更新中でない時は何も表示しない(非表示)。
-   double totDayHigh = iHigh(_Symbol, PERIOD_D1, 0);
-   double totDayLow  = iLow(_Symbol, PERIOD_D1, 0);
-   double totBid     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double totEps     = _Point * 2;   // 浮動小数点誤差対策の許容幅
-   string totLbl = ""; color totLblCol = COL_LIME;
-   if(totBid >= totDayHigh - totEps)
-      totLbl = "最高値更新中";
-   else if(totBid <= totDayLow + totEps)
-      totLbl = "最安値更新中";
-
-   if(totLbl != "")
-      CreateLabelText("totallbl",rightEdge-8,curY+(int)(9*sc),totLbl,totLblCol,7,"Arial",ANCHOR_RIGHT_UPPER);
-   else
-      ObjectDelete(0,PFX+"totallbl");   // 更新中でない時は非表示
-   ObjectDelete(0,PFX+"totalval");   // ★2026-07-21(4回目): 固定サンプル値「+345 pips」(水色)を削除。totallbl(グレー)が隠れて見えなかったため
+   CreateLabelText("totallbl",rightEdge-72,curY+(int)(9*sc),"TOTAL",COL_GRAY2,7,"Arial",ANCHOR_RIGHT_UPPER);
+   CreateLabelText("totalval",rightEdge-8,curY+(int)(7*sc),"+345 pips",COL_BLUE,8,"Arial",ANCHOR_RIGHT_UPPER);
    curY+=lotboxH+(int)(24*sc);
 
    // 上位足の方向（★2026-07-13変更: 固定サンプル→本体インジのbuf15(長期足状態)を実際に読む）
@@ -987,15 +942,9 @@ void CreatePanel()
       double dayHigh = iHigh(_Symbol, PERIOD_D1, 0);
       double dayLow  = iLow(_Symbol, PERIOD_D1, 0);
       int drPips = (int)MathRound((dayHigh - dayLow) / _Point / 10.0);   // Dashboard共通のpips換算(point*10)
-      // ★2026-07-21変更: 600未満=★(グレー)/600以上1000未満=★★(イエロー)/1000以上=★★★(ライム)。
-      //   色は上位足方向(col)ではなく、日次レンジの大きさ専用の色(drCol)に変更。
-      string stars; color drCol;
-      if(drPips < InpDrSmall)      { stars = "★";   drCol = COL_GRAY2;  }
-      else if(drPips < InpDrLarge) { stars = "★★";  drCol = COL_YELLOW; }
-      else                         { stars = "★★★"; drCol = COL_LIME;   }
+      string stars = (drPips <= InpDrSmall) ? "★" : (drPips <= InpDrLarge) ? "★★" : "★★★";   // ★2026-07-15(6回目)変更: <を<=に(「以下」の意味に合わせる)
       // ★2026-07-13(2回目)変更: 全決済ボタンを削除し2部屋構成に。左=上方向(既存,左詰め)/右=★★★DR628のように右詰め
-      // ★2026-07-21変更: 「DR」の文字を削除し、★とpips数値の間にスペースを空ける表記に変更(例: ★★ 893)
-      CreateLabelText("dirstars",rightEdge,curY+(int)(10*sc),stars+" "+IntegerToString(drPips),drCol,10,"Arial",ANCHOR_RIGHT_UPPER);
+      CreateLabelText("dirstars",rightEdge,curY+(int)(10*sc),stars+"DR"+IntegerToString(drPips),col,10,"Arial",ANCHOR_RIGHT_UPPER);
      }
    ObjectDelete(0,PFX+"closeall");   // ★2026-07-13(2回目): 全決済ボタンを撤去(過去に作られた分も消す)
    curY+=dirboxH+(int)(24*sc);
