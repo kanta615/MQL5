@@ -1,5 +1,5 @@
 ﻿//+------------------------------------------------------------------+
-//|                              DokaKotsu_indicator_16.mq5            |
+//|                              DokaKotsu_indicator_17.mq5            |
 //|   バージョン : Ver16.01(_16)  修正日 : 2026-07-21(2回目)           |
 //|                                                                  |
 //|  ■ 修正日 : 2026-07-21(2回目)  修正内容(VolScoreグレー境界を変更) |
@@ -365,11 +365,11 @@
 //====================================================================
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "16.01"
+#property version   "17.00"
 
 //=== バージョン情報(最新版か確認用) ==============================
 #define DK_VERSION   "Ver12.0"
-#define DK_BUILD     "2026-07-21(2回目) VolScoreグレー境界(InpVolScoreLowPct)の既定値を0%→10%に変更。DokaKotsu_Dashboard.mq5・DokaKotsu_VolScore_Sub.mq5(表示専用)も同日中に同じ値へ揃えている。判定ロジック自体(reason43の仕組み)は変更なし、閾値の数値のみの変更。 / 2026-07-21 15→16へバージョンアップ。ボラティリティ(VolScore)をエントリー判定の最終ゲートに追加。DokaKotsu_Dashboard.mq5のComputeVolScore()と同じ式(EMA(High-Low,5)とEMA(それ,20)の乖離率%)を全バーぶん再帰計算し新規buf61(BufVolScore)で公開、InpVolScoreLowPct(既定0%=ゼロライン、2026-07-21のDokaKotsu_VolScore_Sub.mq5と揃えた)未満をグレー(ボラ不足)と判定してreason43でブロックする(InpUseVolScoreGate,既定true)。ロジックA/B/C問わずallowFinal確定後の最後尾に置く共通ゲート(volScoreGray)としたため、既存の各ロジックの条件式自体は変更していない。ファイル名/#property version/IndicatorSetString/Printタグを15→16へ統一。 / 2026-07-17 【重大】フリーズ対策: 状態ログ(10,065,462件→2時間強で19,006,687件に急増)によるフリーズを確認。原因はOnInitが短時間に繰り返し呼ばれていること(ZigZag_ATR警告が22:54/22:57/01:15と複数回出ていたことから判明)+LoadStateCacheAndOpenHandle/LoadTradeStateCacheAndOpenHandleがOnInitのたびにファイル全体を再読込していたため、成長したログほど毎回の再読込が重くなる悪循環になっていたと推定。対策: ①両関数とも、既にメモリ上にキャッシュがあれば全件再読込をスキップしハンドルの再オープンだけ行うよう変更。②前回のファイルハンドルを閉じずに開き直していたリークを修正(FileClose追加)。③OnInit/OnDeinitの呼び出し回数・UninitializeReasonをPrintで記録し、繰り返し発生の原因を追跡できるようにした(g_onInitCount新設)。④ZigZag_ATR(外部サブインジ)を削除(田島さんの指示。判定ロジックは元々hZzAtrで内部複製済みのため実害なし)。即時対応としてInpResetStateLog/InpResetTradeStateLogを一時trueにして暴走したログをリセットすることを推奨。 / 2026-07-16b 14→15リネーム漏れを修正: 状態ログ/取引状態ログ関連のPrint文7箇所が「[indicator_14]」のまま残っていた(実際の判定・保存データには影響なし、ログ表示のみ)。全て「[indicator_15]」に修正。田島さんが実機ログで指摘して発覚。 / 2026-07-15f 14→15へバージョンアップ。エントリーリーズンの修正2点: ①WMA/M15タイミングずれの見送り確定(reason41)。WMAが点灯してからInpWmaM15MaxBars(既定3=15分)本以内にM15が追いつかなければ、以後M15が追いついてもそのWMA継続中は見送り確定(timingMissed変数,colorRun>InpWmaM15MaxBars && m15dCur!=wmaDirで確定)。田島さん整理: 15分側が遅れる=波のスピードが速い=15分足で見ると終盤にあたりリスクが高いため。②BB×KC(regimeSqueeze)条件をロジックCに追加(reason42)。既存のレジーム判定(buf53)をそのまま流用し、まだスクイーズ中(未ブレイク)ならWMA/M15/長期足が揃っていても見送る(allowLogicCに!timingMissed && !regimeSqueezeを追加)。ファイル名/#property version/IndicatorSetStringを14→15へ統一。 / 2026-07-15e ロジックC(現在の既定エントリー方式)に長期足(buf15)の片側ブレーキを追加: 長期足が完全一致するまで待つ(旧ロジックAのreason22相当)のではなく、長期足と『反対方向』の時だけ禁止するシンプルな条件に限定(長期足がグレーの時は従来通り許可)。例: 長期足が青(上昇)で短期・M15が赤(下降)の組み合わせは禁止。allowLogicCにlongOppose(longDirNow!=0 && longDirNow!=d)の否定を追加。 / 2026-07-15d DokaKotsu_Dashboard.mq5のボラティリティゲージ用にADX生値を新規バッファbuf60(BufAdxRaw)で公開(indicator_buffers 60→61)。既存のbuf26(BufAdxState)は0/1/2の分類結果のみで連続値として使えないため新設。判定ロジックには一切使わない観測・表示専用。 / 2026-07-15c ウェーブクロス救済(reason34)の発動条件を絞込: スパイクの有無に関係なくWaveのクロスだけで無条件発動していたのを、直前の1本(i-1)でスパイク面積300以上(InpSpikeAreaThresh)が確定していた場合限定に修正(lastSpikeIdx==i-1 && lastSpikeArea>=InpSpikeAreaThreshを条件追加)。田島さんの指摘(2026-07-15 14:15、スパイク非発生時にウェーブ単独で決済されていた実例)を受けての修正。ロング/ショート両方修正。エントリー判定には影響なし。 / 2026-07-14b 【重要・大型変更】取引状態フリーズ(確定足の幻ポジション対策)を追加。 経緯: 2026-07-14 10:40-11:50のログ分析で、11:15-11:45の30分間(平均足上昇/長期上昇/15分足上昇/ADX上昇と 全条件が揃っていた、本来エントリーすべきだった上昇局面)がreason20「保有中(新規対象外)」でブロックされ 続けていたことが判明。しかしEA側の実約定履歴を確認したところ、該当時間帯(09:31-11:50)に取引は一切なく、 このブロックはindicator内部のシミュレーションだけが生み出した「幻のポジション」であったことが確定した。 根本原因の特定過程: ①SL/TPが見えないという説明→pos自体はInpSyncEAPosによりライブ足で毎ティック実ポジと 同期されており、方向を問わず効くreason20の長時間固着を説明できず却下。②segHadEntry(再エントリーロック)が 原因という説明→過去2回の損切りは下方向、今回の見逃しは上方向で、方向が違うため無関係と田島さんよりご指摘、 撤回。③最終的にEA側コードで「インジのシグナルを形成中足(shift=0)から読む=速攻」という設計が判明し、 これと「ポジション状態は先頭から順に追うため毎回needから全再計算」という既存コード内コメントを突き合わせ、 M15データがバックグラウンド同期で不安定な間にティックごとの再計算結果が微妙に変わり、pos/segHadEntry/ trendDir/cdLeft/grayRunという引き継ぎ変数が本来存在しないはずの状態のまま次の足へ持ち越されてしまう 構造的な脆弱性(以前buf57のSQ/TR/SP判定で発覚したものと同根)であると特定した。 対策: 確定足(i<rates_total-1)は初めて計算された瞬間の状態(pos/segHadEntry/trendDir/cdLeft/grayRunの 5変数と、その足の表示4バッファBufReason/BufBuy/BufSell/BufExit)をMQL5\Files\<InpTradeStateLogDir>\ trade_state_<銘柄>_<足種>.csvへ記録し、以後は必ずファイルの記録値で強制的に上書きする (その後の再計算値がどう変わっても破棄する)。ライブ足(最新の未確定足)はEA側の「速攻」設計を壊さないよう、 従来通り毎ティックリアルタイムで計算する(意図的な仕様・変更なし)。InpUseTradeStateFreeze(既定true)で ON/OFF可、InpResetTradeStateLog(既定false)で既存ログを一時リセット可。 重要度: 表示専用だったbuf57のフリーズと異なり、今回は pos/BufBuy/BufSell という実際の売買判断そのものを 対象にした変更。導入後はしばらくフォワードで、確定足の状態が再同期後も変化しないか、正当なエントリーが 幻のブロックで潰されていないか、継続的に確認すること。 / 2026-07-14 ロジックCにスパイクADX禁止を追加: ロジックA(reason39)で使っていた「スパイク面積300超→ADX色が変わるまで新規禁止」(spikeAdxBanActive)をallowLogicCの条件にも追加(&& !spikeAdxBanActive)。spikeAdxBanActiveはInpEntryModeの選択に関わらず毎足計算され続けている変数のため、計算ロジックの重複追加は不要で参照を足すだけで済んだ。ブロック時のBufReasonは、spikeAdxBanActiveが真の場合ロジックAの全フィルターチェーン側でも同時にreason=39がセットされるため、ロジックC選択時も正しく39と表示される。 / 2026-07-13e ロジックC新規追加・既定化: ロジックB(BB×KC/regimeSqueeze)は根本的にコントロールできないと判断し中止(コードは温存)。InpEntryModeBBKCOnly(bool)をInpEntryMode(enum: A_FULL=0/B_BBKC=1/C_WMA=2)に置き換え、既定をC_WMAに変更。ロジックC=WMA(d,基本方向)+M15同方向(m15dCur==d)+確定足ガード(prevWmaDir==d,旧reason24と同じ考え方)+再エントリーロック。11:30の負け(-99.9pips)が確定足ガードだけで防げていたと分かったため採用。old_chain_reason(buf59)は選んだモードに関わらず、全フィルターならどう判定したかを引き続き記録する。決済ロジックに影響なし。 / 2026-07-13d パターンB(ロジックB)にM15同方向条件を追加: 3回目の負け(調整波に入っての負け)を受け、allowBBKCへ(m15dCur==d)を追加。M15がグレーの場合もd(±1)と不一致になるため不許可(グレー/逆行どちらも弾く)。これによりBB×KC(regimeSqueeze)+再エントリーロックの2条件だったロジックBが、+M15同方向の3条件になった。既存のロジックA(old_chain_reason記録用)には影響なし。 / 2026-07-13 パターンB運用(実験): InpEntryModeBBKCOnly(既定true)を追加。実際の発注判定(BufBuy/BufSell,pos/segHadEntry/trendDir更新)をBB×KC(regimeSqueeze)+再エントリーロックのみで行うよう変更し、M15/Wave/ZigZag/ADX/長期MTF/スパイク禁止等の既存フィルターは判定には使わず、新規診断バッファbuf59(BufOldChainReason)に「もし従来ロジックのままだったらどう判定されたか」を記録するだけの参考値として残す(indicator_buffers 59→60)。false(旧仕様)に戻せば昨日までの全フィルターロジックがそのまま復元される(コード自体は削除していない)。決済(EXIT)ロジックには一切手を加えていない。 / 2026-07-12c レジーム解除条件を緩和(反応速度向上): InpRegimeReleaseOr(既定true)を追加。従来は長期足・M15足の両方が非グレーになるまで解除されずトレンド転換への反応が遅れがちだったため、既定でどちらか一方が非グレーになった時点で解除するよう変更(falseで旧仕様=両方待ちに戻せる)。判定への影響: reason40(スクイーズ中の一括禁止)が解ける時点が早まる=トレンド転換直後のエントリーが今までより速く許可されるようになる(ダマシへの耐性はやや下がるトレードオフ)。 / 2026-07-12b Ver14.0(_14) ①BB×KCレジーム(buf53)の状態確認用サブチャート表示インジDokaKotsu_Regime_Sub.mq5を新規作成、レジーム圧縮比率の新規診断バッファbuf58(BufRegimeRatio)を追加(indicator_buffers 58→59)。②マーケットステイト(buf57)にTRラッチを追加=一度TR(黄色)に解放されたら、新しい圧縮が形成されてもスパイク(SP)が出るまで黄色を維持し続けるよう変更(trLatched,表示専用・reason40の実判定には影響なし)。③13→14へバージョンアップ(ファイル名/#property version/IndicatorSetString/デバッグPrintタグ)。 / 2026-07-12 変更: マーケットステイトのTR(トレンド)表示色をRGB(34,116,128)からYellowに変更(チャート上の状態ラベル・サブチャートの帯グラフ両方)。 / 2026-07-11h 修正: ①状態ログのフォルダをDokaKotsu\state_log(入れ子)からDokaKotsu_state_log(1階層)に変更。フォルダ段階作成でもerr=5004が解消しなかったため。②AppendCachedStateの配列拡張を1件ずつのArrayResize(バックフィル時にO(n²)で著しく遅延し、指標が固まって何も表示されなくなる原因になり得た)から5000件単位のまとめ確保に変更。③LoadStateCacheAndOpenHandleの読込後にg_stateCacheCapを実際の配列サイズと同期する処理を追加(これが無いと次回追記時に配列を誤って縮小し、読み込み済みの過去データを破壊してしまう重大バグがあったため)。 / 2026-07-11g 修正: 状態ログのフォルダ作成方法を変更。FolderCreateが入れ子フォルダ(DokaKotsu\state_log)を一発で作成できず、親フォルダ未作成のままFileOpenして失敗する事例(err=5004)が発生したため、親→子の順に段階的にFolderCreateするよう修正。 / 2026-07-11f 修正: ①InpResetStateLog(既定false)を追加。trueにすると起動時に既存の状態ログ(market_state_*.csv)を削除して作り直す。SP判定ロジックを変更した後、古いロジックで凍結された記録が残り続ける問題への対策(1回trueにして再読込→falseに戻す運用)。②OnInitで古い状態ラベル(DK_MS_)を毎回一旦クリアするよう変更。ラベルは作ったら消えないオブジェクトのため、ログリセット時やロジック変更時に古い表示が残るのを防ぐ。 / 2026-07-11e 絞り込み再適用: マーケットステイトのSPトリガーを面積300以上(InpSpikeAreaThresh)に戻した。小さいスイングはノイズとして無視し、Spikek_Filter側の絶対閾値絞り込みと定義を統一。 / 2026-07-11d 簡素化: 300以上の絞り込みを一旦外し、Spikek_Filterで確定した全スイング(面積>0)をそのままSPのトリガーにするよう変更(3つの修正を同時に進めるより、まず①Spikek_Filterの数値表示②マーケットステイトのSP表示、の2点を先に確実に動かすため。絶対閾値での絞り込みは後日改めて追加予定)。 / 2026-07-11c 修正: マーケットステイトのSP駆動元をSpikek_FilterのBufPass(buf0,直近平均比の相対判定)からBufAreaRaw(buf2,生の面積値)に変更し、indicator_13自身のInpSpikeAreaThresh(既定300)で絶対判定するよう修正。旧来のBufPassは「相対的に小さいと300以上でも非表示」になる問題があり、田島さんの「スパイク=面積300以上」という絶対定義とズレていたため。あわせてSpikek_Filter.mq5側もInpSpikeAbsThresh(既定300)による絶対閾値表示に変更(2026-07-11版)、両者の定義を統一。 / 2026-07-11b マーケットステイトのSP駆動源を外部DokaKotsu_Spikek_Filterへ変更: 内部計算(thisBarSpikeArea/spikeAdxBanActive、同じATR14/倍率2.0/面積式のはずだが実チャートで一致しない実例が確認された)ではなく、Spikek_FilterのBufPass(合格判定,buf0)をiCustomで直接参照してSPをトリガーする(InpUseExternalSpikeForState,既定true。参照先はInpSpikeFilterNameで指定・既定input値で呼び出すため運用側でSpikek_Filterの設定を変えている場合は要注意)。解除条件はトリガー時点のADX色と異なる色になった瞬間(既存のspikeAdxBanActiveと同じ考え方を踏襲)。優先順位も変更: 「スパイクはSQ/TRの区別なく出したい」という方針のためSPを最優先(SQ判定より上位)に変更。取引ロジック側のreason39(spikeAdxBanActive)は今回一切変更していない、表示専用バッファ(buf57)の駆動源切替のみ。 / 2026-07-11 相場状態(SQ/TR/SP)の確定足フリーズキャッシュを追加: このインジは毎ティック全履歴を再計算する設計のため、MT5の履歴再同期(週明け再接続・チャートスクロール等)でregimeSqueeze/spikeAdxBanActiveのラッチ結果が過去に遡って変わり、buf57やチャートラベルの表示が事後的に書き換わってしまう問題への対策。確定足(i<rates_total-1)は初めて計算された瞬間にMQL5\Files\<InpStateLogDir>\market_state_<銘柄>_<足種>.csvへ書き出し、以後は必ずファイルの記録値で固定する(その後の再計算値がどう変わっても無視)。最新のライブ足(未確定)だけは毎回リアルタイム再計算のまま(意図的な仕様)。InpUseStateFreeze(既定true)でON/OFF可。判定ロジック(実際のエントリー可否)には一切影響しない、表示専用バッファ(buf57)の凍結のみ。 / 2026-07-10e 相場状態(SQ/TR/SP)の3状態管理を追加: 優先順位はSQ(regimeSqueeze)最優先→SP(spikeAdxBanActive、TR中のみ有効)→TR(既定)。「SPIKEはTRの中でしか発生しない」運用のためSQ中のスパイクは表示上SQのまま(意図的仕様)。buf57(BufMarketState,1=SQ/2=TR/3=SP)を追加、サブチャート表示インジ(別ファイル)がCopyBufferで参照する想定。チャート上には状態切替時のみ太字テキスト(SQ/TR/SP)をDrawStateLabelで表示(DrawBGと同じObjectFindガードパターンにより1回だけ描画・InpShowStateLabelでON/OFF、InpStateLookbackで走査本数、InpStateFontSizeでサイズ調整可)。判定ロジック自体への影響なし(表示専用)。 / 2026-07-10d 後段フィルターの影の判定を追加: Wave(26/27/28)・ADX継続性(29/36)・ZigZag弱波(35)の3つを、allow鎖の状態(上流でreason40/37/39等によりブロック済みかどうか)とは無関係に毎足必ず計算し、buf54(Wave)/buf55(ADX)/buf56(ZigZag)へ出力(0=その回はブロックなし相当)。既存の実ロジック(該当行)と全く同じ条件式を複製しているだけで、判定ロジック自体には一切影響しない観測専用(WYSIWYG継続遵守)。目的: reason40(スクイーズ)等の上流ブロックが長時間続いた区間でも、後段フィルターがその裏で通過/ブロックのどちらだったかを事後にCSVで復元できるようにするため。 / 2026-07-10c バグ修正: InpRegimeBBMult既定を1.5→1.8に変更。1.5(=KCMultと同値)だと圧縮判定の実質閾値がsd/rangema<1.0となり緩めすぎ、明確な下降トレンド中(平均足/長期/15分/ADX全て一致)でも毎足圧縮判定が再発火し続け、解除チェック(else分岐)に一度も到達できず65分以上スクイーズに固定される実例が発生(2026-07-10 16:45-17:50)。1.8で閾値0.83=旧来のInpFilSqueeze用0.75よりやや緩い程度に是正。 / 2026-07-10b 相場レジーム判定(スクイーズ/トレンド二層構造)追加: BB×KC圧縮(InpRegimeBBMult=1.5/InpRegimeKCMult=1.5,緩め既定・従来のInpFilSqueeze用sqzOnとは独立)をトリガーにレジームをスクイーズへ切替え、長期足・M15足の両方が非グレーになった瞬間にトレンドへ解除(reason40)。エントリー許可チェーンの最上流でスクイーズ中を一括禁止するため、ZigZag弱波(35)/スパイクADX禁止(37/39)等トレンド専用フィルターはスクイーズ中は個別評価されない。開始トリガーと解除条件を別指標にすることで、旧BBスクイーズ運用時の「解除が遅れてエントリーが遅くなる」問題を構造的に回避(InpUseRegimeSystemでON/OFF切替可)。診断用にbuf53(レジーム0/1)を追加。 / 2026-07-10 スパイクADX新規禁止(reason39)追加: スパイク面積300超を検出したらポジション有無に関係なくトリガーし、トリガー時点のADX色(0グレー/1上昇/2下降)と異なる色になるまで新規エントリーを禁止(InpUseSpikeAdxBan,既定true)。既存③(spikeBanActive/haColor,reason37)は保有中にスパイクで決済した場合のみのトリガーだったが、深夜のボラなし局面で平均足がグレー化した後もスパイクの余韻でダマシが出た実例があったため、より確実な独立軸としてADX色を基準に採用(平均足/MA反転は使わない)。グレー経由・逆色いずれでも解除。診断用にbuf50(禁止中フラグ)/buf51(直近トリガー面積,保持型)/buf52(直近トリガーからの経過本数)を追加、弱5波対策の効果検証に利用可(判定ロジックには影響しない観測専用)。 / 2026-07-09c 「勘に頼らない敗因分析」残項目を一括追加(buf44-49): ①再入クールダウン残り本数(cdLeft,buf44) ②ベースMAのグレー閾値距離(|slope|-thOn,buf45) ③長期MAの平滑化傾き実値(buf46)と閾値距離(buf47) ④Wave早い/遅い線の生値(wvMA/wvSlow,buf48/49)。いずれも判定ロジックには一切影響しない観測専用(WYSIWYG/絶対ルール継続遵守)。 / 2026-07-09b スパイク保持型バッファ追加(buf42/43): BufSpikeArea(buf41)は確定した1本の足でしか値が立たない単発パルスのため、エントリー側からは同一足でない限りほぼ0.0しか見えず相関が取れなかった。次のスパイクまで値を保持するBufSpikeAreaLast(buf42)と、経過本数のBufSpikeBarsSince(buf43,未観測=-1)を追加し、「何本前にどれくらいの面積のスパイクがあったか」を常に読めるようにした。 / 2026-07-09 スパイク面積(buf41)をEAへ公開: thisBarSpikeAreaがローカル変数のままでEAから読めなかったのを解消。スイング確定足では閾値未達(300未満)の「不発」も含めて常に実測値を書く=閾値300の妥当性検証に使える。 / 2026-07-08b ZigZag⇔M15を入れ替えて検証開始: InpUseZzFilter=false→true(弱5波フィルター有効化,InpZzMinStrength=40.0)。同時にInpM15ApplyToSell=true→false(SELLはM15対象外の実験構成に再度戻す)。ZigZagが効かないと判断した場合はInpUseZzFilter=false・InpM15ApplyToSell=trueに戻す。 / 2026-07-08 InpM15ApplyToSell既定をfalse→trueに復帰: 2026-07-06の実験(SELLのみM15フィルター対象外)投入直後に敗戦したため、BUY/SELL両方に再度M15フィルターを適用する対称構成に戻した(falseにすればいつでも実験構成へ切替可)。 / 2026-07-06 Ver12.0(_12) ①ADX継続性チェック追加(InpAdxConfirmBars,既定2)=前足グレーからの即時フリップを弾く(reason36) ②ZigZag_ATR(iCustom)を統合し残存強度%フィルターを追加(InpUseZzFilter,既定false=実験投入待ち。reason35=直近確定レッグの反対側到達間近=弱5波) ③M15フィルターの方向別非対称化(InpM15ApplyToSell,既定false=SELLはM15対象外の実験) / 2026-06-20 Ver8.0(_8) 方向MA=WMA34・案Cハイブリッド決済・M15(WMA20)一致フィルター+M15状態buf13/リーズン列・EA_8と番号統一 / 2026-06-22:M15確定足参照(InpM15ConfirmClosed) / 2026-06-22:M15=KAMA20既定・決済案B(平均足反転最優先+理由30/31/32)・出来高フィルター・平均足色buf14 / 2026-06-22:後平滑1・色確認1・M15ライブ足で前倒し / 2026-06-22:平均足一致を必須化(調整波回避ON)で天井づかみ防止 / 2026-06-24:Ver8.3 長期足(M5・既定KAMA360)追加=短期WMA34/中期M15/長期の3本MTFパーフェクトオーダー門番(reason22)・SMA20_CENTERを長期足表示に転用 / 2026-06-24:エントリーM15を確定足要求(InpM15EntryConfirm 0/1/2,既定2)=ライブ点火+確定足門番で深夜グレーのちらつき偽SELL(reason23)を抑止 / 2026-06-24:Ver9.0 ファイル名/版を8→9統一(EAと同番号)・初期値 中期M15期間=15/長期足期間=380・CSVに長期足状態列(平均足|長期足|15分|理由,buf15)追加 / 2026-06-25:Ver9.0 長期線スムージング=色判定の傾きをInpLongSlopeSmooth個平均(各InpLongSlopeStep本幅)・ATR正規化のまま+デッドバンドInpLongGrayThresh+ヒステリシスInpLongHystRatio(線位置は不変=WYSIWYG/本数増やさず)。スパイク一発で長期線が瞬間的に青判定→近フラットをグレー化。旧InpLongSlopeBars/InpLongSlopeThを置換。長期足状態buf15の二重ゼロ上書きバグ修正(EAが正しい長期方向を読めるように) / 2026-06-25:Ver9.0 平均足を一元化=後平滑OHLCをbuf16-19で公開(表示用DokaKotsu_HeikinAshiがiCustomで参照し色だけ付与)。前平滑3/後平滑5(ともSMMA)に統一=見ている平均足と決済判定の平均足を完全一致(旧:インジ後平滑1 vs 表示後平滑5でズレていた)。後平滑1→5で決済はやや滑らか/遅め化(意図的) / 2026-06-25:Ver9.0 確定足ガードInpConfirmClosedBar(既定ON)=エントリー時に直前確定足のWMA34も同方向dに点灯を必須化。ライブ足の途中grey→点灯した単発ブレ(フラッシュ点火/底でのダマシ)を弾く。継続は素通り=速度温存、グレー明けの一発目のみ確定1本待ち。reason24=直前確定足が未点灯 / 2026-06-28:Ver10.0(_10) 波オシレーターを本体に統合=波/シグナル/レジーム/上抜け/下抜けをbuf20-24で公開(Wave_Subは描画専用に)・MAエンジンにTMA/VWMA/ATR Adaptive/ATR Trendを追加(波で全17種対応) / エントリー新ルール:長期足が先頭に点灯(最後に点灯ならreason25で除外,InpUseLongFirst)＋Waveが同方向を最終条件(reason26,InpUseWaveTrigger)。既存フィルター(再入14/クールダウン15/確定足ガード24/平均足一致18/M15門番19,23/長期一致22)は維持 / 2026-06-29:Wave判定を長期足より前へ独立評価し3状態化(26=ウェーブ中立/27=ウェーブ上昇クロス/28=ウェーブ下降クロス,中立帯InpWaveNeutralBand)。22長期不一致・17色確認をallowガード化(エントリー判定は不変・理由の優先順位のみ整理) / 2026-06-30:buf25=5分背景方向(wmaDir)を公開。EAが段階決済モードでグレー継続/MA反転を自前計数して決済する土台(インジ再計算では保有継続中のgrayRunを積めないため) / 2026-06-30:A層(enum/MAエンジン)をDokaKotsu_Core.mqhへ移管しincludeに変更(挙動不変・置き場所のみ。Coreは MQL5\\Include\\ に配置) / 2026-07-05:ADXトレンドフィルター追加=DokaKotsu_Trend_FilterのADX(既定期間12)+EMA(50)ロジックを本体に統合(buf26=ADXState/WYSIWYG)。ADX<閾値(既定25)=グレーの時のみ最終ゲートで禁止(reason29)。方向不一致(色反転)は見ない=ラグ回避。既存グレーライン環境認識(長期/M15レンジ判定)とは別軸のトレンド終盤ノイズ除去フィルター"
+#define DK_BUILD     "2026-08-16 ★MACDフィルター免除ゲート追加(reason44)。timingMissed(reason41=WMA/M15タイミングずれ)がtrueの場合に限り、DokaKotsu_MACD_Filter(BufColorIdx/buf1)の方向が同方向かつspikeAdxBanActive=falseならエントリーを免除許可する追加条件。目的: 一方的なトレンド相場でWMAが長時間途切れずreason41が固定された場合でも、MACDが同方向を示していれば入れるようにしてエントリー回数を増やす(2026-08-14 16:30-18:55の2時間半ロングアウト事例を受けての対応)。スパイク面積1000超禁止(spikeAdxBanActive/reason39)は免除対象外・必ず適用。MACDグレーは同方向とみなさず禁止。InpUseMacdTimingRelief(既定true)とInpMacdFilterName(既定DokaKotsu_MACD_Filter)を追加。hMacdFilterハンドルをOnInitで生成、OnDeinitで解放。reason44=MACD免除エントリーとして専用CSVログ出力。実装はWYSIWIG原則遵守: ロジックはインジのみが持つ。 / 2026-08-15 ★土日再起動後にindicator_17の背景色・サブウィンドウ棒グラフ等が全消えする問題を修正。原因: 土曜11時以降XAUUSDのM5ティックが完全停止するため、OnCalculateが一度も呼ばれず計算がゼロのまま固まる。対策: OnInitにEventSetTimer(30)を追加し、OnTimer内でForceCalculate()を新設(IndicatorSetInteger(INDICATOR_DIGITS,_Digits)を叩くことでMT5にOnCalculate再トリガーを促す仕組み)。土日の検証環境用途として、タイマーは週末(土/日)かつrates_totalが前回と変わっていない時のみ発動し、月曜以降の通常稼働時(ティックが来るため不要)は何もしない設計。OnDeinitにEventKillTimer()を追加して確実に解放。OnInitの繰り返し発火リスクなし(IndicatorSetIntegerはOnCalculateのみ再トリガーしOnInitは発火させない)。田島さん報告(2026-08-15土曜11時にMT5再起動→indicator_17・背景色・VolScore_Sub・Regime_Sub等が全消え)を受けての対応。 / 2026-08-14 16→17へバージョンアップ。★スパイク面積閾値(InpSpikeAreaThresh)の既定値を300→1000に変更。田島さんとの会話(2026-08-14 09:30 SELLトレードの分析)を受けての見直し。この1つの入力値がreason33/34(スパイク面積決済・ウェーブクロス救済)、reason39(スパイク面積300超→ADX色が変わるまで新規禁止)、マーケットステイトのSP判定(buf57、外部Spikek_Filterの生面積値extSpikeAreaをこの閾値で絶対判定)の3箇所すべてに共通で使われている(単一の入力値を複数箇所が参照する設計のため、値の変更のみで全箇所に反映・ロジック自体の変更なし)。ファイル名/#property version/IndicatorSetString/Printタグを16→17へ統一。 / 2026-07-21(2回目) VolScoreグレー境界(InpVolScoreLowPct)の既定値を0%→10%に変更。DokaKotsu_Dashboard.mq5・DokaKotsu_VolScore_Sub.mq5(表示専用)も同日中に同じ値へ揃えている。判定ロジック自体(reason43の仕組み)は変更なし、閾値の数値のみの変更。 / 2026-07-21 15→16へバージョンアップ。ボラティリティ(VolScore)をエントリー判定の最終ゲートに追加。DokaKotsu_Dashboard.mq5のComputeVolScore()と同じ式(EMA(High-Low,5)とEMA(それ,20)の乖離率%)を全バーぶん再帰計算し新規buf61(BufVolScore)で公開、InpVolScoreLowPct(既定0%=ゼロライン、2026-07-21のDokaKotsu_VolScore_Sub.mq5と揃えた)未満をグレー(ボラ不足)と判定してreason43でブロックする(InpUseVolScoreGate,既定true)。ロジックA/B/C問わずallowFinal確定後の最後尾に置く共通ゲート(volScoreGray)としたため、既存の各ロジックの条件式自体は変更していない。ファイル名/#property version/IndicatorSetString/Printタグを15→16へ統一。 / 2026-07-17 【重大】フリーズ対策: 状態ログ(10,065,462件→2時間強で19,006,687件に急増)によるフリーズを確認。原因はOnInitが短時間に繰り返し呼ばれていること(ZigZag_ATR警告が22:54/22:57/01:15と複数回出ていたことから判明)+LoadStateCacheAndOpenHandle/LoadTradeStateCacheAndOpenHandleがOnInitのたびにファイル全体を再読込していたため、成長したログほど毎回の再読込が重くなる悪循環になっていたと推定。対策: ①両関数とも、既にメモリ上にキャッシュがあれば全件再読込をスキップしハンドルの再オープンだけ行うよう変更。②前回のファイルハンドルを閉じずに開き直していたリークを修正(FileClose追加)。③OnInit/OnDeinitの呼び出し回数・UninitializeReasonをPrintで記録し、繰り返し発生の原因を追跡できるようにした(g_onInitCount新設)。④ZigZag_ATR(外部サブインジ)を削除(田島さんの指示。判定ロジックは元々hZzAtrで内部複製済みのため実害なし)。即時対応としてInpResetStateLog/InpResetTradeStateLogを一時trueにして暴走したログをリセットすることを推奨。 / 2026-07-16b 14→15リネーム漏れを修正: 状態ログ/取引状態ログ関連のPrint文7箇所が「[indicator_14]」のまま残っていた(実際の判定・保存データには影響なし、ログ表示のみ)。全て「[indicator_15]」に修正。田島さんが実機ログで指摘して発覚。 / 2026-07-15f 14→15へバージョンアップ。エントリーリーズンの修正2点: ①WMA/M15タイミングずれの見送り確定(reason41)。WMAが点灯してからInpWmaM15MaxBars(既定3=15分)本以内にM15が追いつかなければ、以後M15が追いついてもそのWMA継続中は見送り確定(timingMissed変数,colorRun>InpWmaM15MaxBars && m15dCur!=wmaDirで確定)。田島さん整理: 15分側が遅れる=波のスピードが速い=15分足で見ると終盤にあたりリスクが高いため。②BB×KC(regimeSqueeze)条件をロジックCに追加(reason42)。既存のレジーム判定(buf53)をそのまま流用し、まだスクイーズ中(未ブレイク)ならWMA/M15/長期足が揃っていても見送る(allowLogicCに!timingMissed && !regimeSqueezeを追加)。ファイル名/#property version/IndicatorSetStringを14→15へ統一。 / 2026-07-15e ロジックC(現在の既定エントリー方式)に長期足(buf15)の片側ブレーキを追加: 長期足が完全一致するまで待つ(旧ロジックAのreason22相当)のではなく、長期足と『反対方向』の時だけ禁止するシンプルな条件に限定(長期足がグレーの時は従来通り許可)。例: 長期足が青(上昇)で短期・M15が赤(下降)の組み合わせは禁止。allowLogicCにlongOppose(longDirNow!=0 && longDirNow!=d)の否定を追加。 / 2026-07-15d DokaKotsu_Dashboard.mq5のボラティリティゲージ用にADX生値を新規バッファbuf60(BufAdxRaw)で公開(indicator_buffers 60→61)。既存のbuf26(BufAdxState)は0/1/2の分類結果のみで連続値として使えないため新設。判定ロジックには一切使わない観測・表示専用。 / 2026-07-15c ウェーブクロス救済(reason34)の発動条件を絞込: スパイクの有無に関係なくWaveのクロスだけで無条件発動していたのを、直前の1本(i-1)でスパイク面積300以上(InpSpikeAreaThresh)が確定していた場合限定に修正(lastSpikeIdx==i-1 && lastSpikeArea>=InpSpikeAreaThreshを条件追加)。田島さんの指摘(2026-07-15 14:15、スパイク非発生時にウェーブ単独で決済されていた実例)を受けての修正。ロング/ショート両方修正。エントリー判定には影響なし。 / 2026-07-14b 【重要・大型変更】取引状態フリーズ(確定足の幻ポジション対策)を追加。 経緯: 2026-07-14 10:40-11:50のログ分析で、11:15-11:45の30分間(平均足上昇/長期上昇/15分足上昇/ADX上昇と 全条件が揃っていた、本来エントリーすべきだった上昇局面)がreason20「保有中(新規対象外)」でブロックされ 続けていたことが判明。しかしEA側の実約定履歴を確認したところ、該当時間帯(09:31-11:50)に取引は一切なく、 このブロックはindicator内部のシミュレーションだけが生み出した「幻のポジション」であったことが確定した。 根本原因の特定過程: ①SL/TPが見えないという説明→pos自体はInpSyncEAPosによりライブ足で毎ティック実ポジと 同期されており、方向を問わず効くreason20の長時間固着を説明できず却下。②segHadEntry(再エントリーロック)が 原因という説明→過去2回の損切りは下方向、今回の見逃しは上方向で、方向が違うため無関係と田島さんよりご指摘、 撤回。③最終的にEA側コードで「インジのシグナルを形成中足(shift=0)から読む=速攻」という設計が判明し、 これと「ポジション状態は先頭から順に追うため毎回needから全再計算」という既存コード内コメントを突き合わせ、 M15データがバックグラウンド同期で不安定な間にティックごとの再計算結果が微妙に変わり、pos/segHadEntry/ trendDir/cdLeft/grayRunという引き継ぎ変数が本来存在しないはずの状態のまま次の足へ持ち越されてしまう 構造的な脆弱性(以前buf57のSQ/TR/SP判定で発覚したものと同根)であると特定した。 対策: 確定足(i<rates_total-1)は初めて計算された瞬間の状態(pos/segHadEntry/trendDir/cdLeft/grayRunの 5変数と、その足の表示4バッファBufReason/BufBuy/BufSell/BufExit)をMQL5\Files\<InpTradeStateLogDir>\ trade_state_<銘柄>_<足種>.csvへ記録し、以後は必ずファイルの記録値で強制的に上書きする (その後の再計算値がどう変わっても破棄する)。ライブ足(最新の未確定足)はEA側の「速攻」設計を壊さないよう、 従来通り毎ティックリアルタイムで計算する(意図的な仕様・変更なし)。InpUseTradeStateFreeze(既定true)で ON/OFF可、InpResetTradeStateLog(既定false)で既存ログを一時リセット可。 重要度: 表示専用だったbuf57のフリーズと異なり、今回は pos/BufBuy/BufSell という実際の売買判断そのものを 対象にした変更。導入後はしばらくフォワードで、確定足の状態が再同期後も変化しないか、正当なエントリーが 幻のブロックで潰されていないか、継続的に確認すること。 / 2026-07-14 ロジックCにスパイクADX禁止を追加: ロジックA(reason39)で使っていた「スパイク面積300超→ADX色が変わるまで新規禁止」(spikeAdxBanActive)をallowLogicCの条件にも追加(&& !spikeAdxBanActive)。spikeAdxBanActiveはInpEntryModeの選択に関わらず毎足計算され続けている変数のため、計算ロジックの重複追加は不要で参照を足すだけで済んだ。ブロック時のBufReasonは、spikeAdxBanActiveが真の場合ロジックAの全フィルターチェーン側でも同時にreason=39がセットされるため、ロジックC選択時も正しく39と表示される。 / 2026-07-13e ロジックC新規追加・既定化: ロジックB(BB×KC/regimeSqueeze)は根本的にコントロールできないと判断し中止(コードは温存)。InpEntryModeBBKCOnly(bool)をInpEntryMode(enum: A_FULL=0/B_BBKC=1/C_WMA=2)に置き換え、既定をC_WMAに変更。ロジックC=WMA(d,基本方向)+M15同方向(m15dCur==d)+確定足ガード(prevWmaDir==d,旧reason24と同じ考え方)+再エントリーロック。11:30の負け(-99.9pips)が確定足ガードだけで防げていたと分かったため採用。old_chain_reason(buf59)は選んだモードに関わらず、全フィルターならどう判定したかを引き続き記録する。決済ロジックに影響なし。 / 2026-07-13d パターンB(ロジックB)にM15同方向条件を追加: 3回目の負け(調整波に入っての負け)を受け、allowBBKCへ(m15dCur==d)を追加。M15がグレーの場合もd(±1)と不一致になるため不許可(グレー/逆行どちらも弾く)。これによりBB×KC(regimeSqueeze)+再エントリーロックの2条件だったロジックBが、+M15同方向の3条件になった。既存のロジックA(old_chain_reason記録用)には影響なし。 / 2026-07-13 パターンB運用(実験): InpEntryModeBBKCOnly(既定true)を追加。実際の発注判定(BufBuy/BufSell,pos/segHadEntry/trendDir更新)をBB×KC(regimeSqueeze)+再エントリーロックのみで行うよう変更し、M15/Wave/ZigZag/ADX/長期MTF/スパイク禁止等の既存フィルターは判定には使わず、新規診断バッファbuf59(BufOldChainReason)に「もし従来ロジックのままだったらどう判定されたか」を記録するだけの参考値として残す(indicator_buffers 59→60)。false(旧仕様)に戻せば昨日までの全フィルターロジックがそのまま復元される(コード自体は削除していない)。決済(EXIT)ロジックには一切手を加えていない。 / 2026-07-12c レジーム解除条件を緩和(反応速度向上): InpRegimeReleaseOr(既定true)を追加。従来は長期足・M15足の両方が非グレーになるまで解除されずトレンド転換への反応が遅れがちだったため、既定でどちらか一方が非グレーになった時点で解除するよう変更(falseで旧仕様=両方待ちに戻せる)。判定への影響: reason40(スクイーズ中の一括禁止)が解ける時点が早まる=トレンド転換直後のエントリーが今までより速く許可されるようになる(ダマシへの耐性はやや下がるトレードオフ)。 / 2026-07-12b Ver14.0(_14) ①BB×KCレジーム(buf53)の状態確認用サブチャート表示インジDokaKotsu_Regime_Sub.mq5を新規作成、レジーム圧縮比率の新規診断バッファbuf58(BufRegimeRatio)を追加(indicator_buffers 58→59)。②マーケットステイト(buf57)にTRラッチを追加=一度TR(黄色)に解放されたら、新しい圧縮が形成されてもスパイク(SP)が出るまで黄色を維持し続けるよう変更(trLatched,表示専用・reason40の実判定には影響なし)。③13→14へバージョンアップ(ファイル名/#property version/IndicatorSetString/デバッグPrintタグ)。 / 2026-07-12 変更: マーケットステイトのTR(トレンド)表示色をRGB(34,116,128)からYellowに変更(チャート上の状態ラベル・サブチャートの帯グラフ両方)。 / 2026-07-11h 修正: ①状態ログのフォルダをDokaKotsu\state_log(入れ子)からDokaKotsu_state_log(1階層)に変更。フォルダ段階作成でもerr=5004が解消しなかったため。②AppendCachedStateの配列拡張を1件ずつのArrayResize(バックフィル時にO(n²)で著しく遅延し、指標が固まって何も表示されなくなる原因になり得た)から5000件単位のまとめ確保に変更。③LoadStateCacheAndOpenHandleの読込後にg_stateCacheCapを実際の配列サイズと同期する処理を追加(これが無いと次回追記時に配列を誤って縮小し、読み込み済みの過去データを破壊してしまう重大バグがあったため)。 / 2026-07-11g 修正: 状態ログのフォルダ作成方法を変更。FolderCreateが入れ子フォルダ(DokaKotsu\state_log)を一発で作成できず、親フォルダ未作成のままFileOpenして失敗する事例(err=5004)が発生したため、親→子の順に段階的にFolderCreateするよう修正。 / 2026-07-11f 修正: ①InpResetStateLog(既定false)を追加。trueにすると起動時に既存の状態ログ(market_state_*.csv)を削除して作り直す。SP判定ロジックを変更した後、古いロジックで凍結された記録が残り続ける問題への対策(1回trueにして再読込→falseに戻す運用)。②OnInitで古い状態ラベル(DK_MS_)を毎回一旦クリアするよう変更。ラベルは作ったら消えないオブジェクトのため、ログリセット時やロジック変更時に古い表示が残るのを防ぐ。 / 2026-07-11e 絞り込み再適用: マーケットステイトのSPトリガーを面積300以上(InpSpikeAreaThresh)に戻した。小さいスイングはノイズとして無視し、Spikek_Filter側の絶対閾値絞り込みと定義を統一。 / 2026-07-11d 簡素化: 300以上の絞り込みを一旦外し、Spikek_Filterで確定した全スイング(面積>0)をそのままSPのトリガーにするよう変更(3つの修正を同時に進めるより、まず①Spikek_Filterの数値表示②マーケットステイトのSP表示、の2点を先に確実に動かすため。絶対閾値での絞り込みは後日改めて追加予定)。 / 2026-07-11c 修正: マーケットステイトのSP駆動元をSpikek_FilterのBufPass(buf0,直近平均比の相対判定)からBufAreaRaw(buf2,生の面積値)に変更し、indicator_13自身のInpSpikeAreaThresh(既定300)で絶対判定するよう修正。旧来のBufPassは「相対的に小さいと300以上でも非表示」になる問題があり、田島さんの「スパイク=面積300以上」という絶対定義とズレていたため。あわせてSpikek_Filter.mq5側もInpSpikeAbsThresh(既定300)による絶対閾値表示に変更(2026-07-11版)、両者の定義を統一。 / 2026-07-11b マーケットステイトのSP駆動源を外部DokaKotsu_Spikek_Filterへ変更: 内部計算(thisBarSpikeArea/spikeAdxBanActive、同じATR14/倍率2.0/面積式のはずだが実チャートで一致しない実例が確認された)ではなく、Spikek_FilterのBufPass(合格判定,buf0)をiCustomで直接参照してSPをトリガーする(InpUseExternalSpikeForState,既定true。参照先はInpSpikeFilterNameで指定・既定input値で呼び出すため運用側でSpikek_Filterの設定を変えている場合は要注意)。解除条件はトリガー時点のADX色と異なる色になった瞬間(既存のspikeAdxBanActiveと同じ考え方を踏襲)。優先順位も変更: 「スパイクはSQ/TRの区別なく出したい」という方針のためSPを最優先(SQ判定より上位)に変更。取引ロジック側のreason39(spikeAdxBanActive)は今回一切変更していない、表示専用バッファ(buf57)の駆動源切替のみ。 / 2026-07-11 相場状態(SQ/TR/SP)の確定足フリーズキャッシュを追加: このインジは毎ティック全履歴を再計算する設計のため、MT5の履歴再同期(週明け再接続・チャートスクロール等)でregimeSqueeze/spikeAdxBanActiveのラッチ結果が過去に遡って変わり、buf57やチャートラベルの表示が事後的に書き換わってしまう問題への対策。確定足(i<rates_total-1)は初めて計算された瞬間にMQL5\Files\<InpStateLogDir>\market_state_<銘柄>_<足種>.csvへ書き出し、以後は必ずファイルの記録値で固定する(その後の再計算値がどう変わっても無視)。最新のライブ足(未確定)だけは毎回リアルタイム再計算のまま(意図的な仕様)。InpUseStateFreeze(既定true)でON/OFF可。判定ロジック(実際のエントリー可否)には一切影響しない、表示専用バッファ(buf57)の凍結のみ。 / 2026-07-10e 相場状態(SQ/TR/SP)の3状態管理を追加: 優先順位はSQ(regimeSqueeze)最優先→SP(spikeAdxBanActive、TR中のみ有効)→TR(既定)。「SPIKEはTRの中でしか発生しない」運用のためSQ中のスパイクは表示上SQのまま(意図的仕様)。buf57(BufMarketState,1=SQ/2=TR/3=SP)を追加、サブチャート表示インジ(別ファイル)がCopyBufferで参照する想定。チャート上には状態切替時のみ太字テキスト(SQ/TR/SP)をDrawStateLabelで表示(DrawBGと同じObjectFindガードパターンにより1回だけ描画・InpShowStateLabelでON/OFF、InpStateLookbackで走査本数、InpStateFontSizeでサイズ調整可)。判定ロジック自体への影響なし(表示専用)。 / 2026-07-10d 後段フィルターの影の判定を追加: Wave(26/27/28)・ADX継続性(29/36)・ZigZag弱波(35)の3つを、allow鎖の状態(上流でreason40/37/39等によりブロック済みかどうか)とは無関係に毎足必ず計算し、buf54(Wave)/buf55(ADX)/buf56(ZigZag)へ出力(0=その回はブロックなし相当)。既存の実ロジック(該当行)と全く同じ条件式を複製しているだけで、判定ロジック自体には一切影響しない観測専用(WYSIWYG継続遵守)。目的: reason40(スクイーズ)等の上流ブロックが長時間続いた区間でも、後段フィルターがその裏で通過/ブロックのどちらだったかを事後にCSVで復元できるようにするため。 / 2026-07-10c バグ修正: InpRegimeBBMult既定を1.5→1.8に変更。1.5(=KCMultと同値)だと圧縮判定の実質閾値がsd/rangema<1.0となり緩めすぎ、明確な下降トレンド中(平均足/長期/15分/ADX全て一致)でも毎足圧縮判定が再発火し続け、解除チェック(else分岐)に一度も到達できず65分以上スクイーズに固定される実例が発生(2026-07-10 16:45-17:50)。1.8で閾値0.83=旧来のInpFilSqueeze用0.75よりやや緩い程度に是正。 / 2026-07-10b 相場レジーム判定(スクイーズ/トレンド二層構造)追加: BB×KC圧縮(InpRegimeBBMult=1.5/InpRegimeKCMult=1.5,緩め既定・従来のInpFilSqueeze用sqzOnとは独立)をトリガーにレジームをスクイーズへ切替え、長期足・M15足の両方が非グレーになった瞬間にトレンドへ解除(reason40)。エントリー許可チェーンの最上流でスクイーズ中を一括禁止するため、ZigZag弱波(35)/スパイクADX禁止(37/39)等トレンド専用フィルターはスクイーズ中は個別評価されない。開始トリガーと解除条件を別指標にすることで、旧BBスクイーズ運用時の「解除が遅れてエントリーが遅くなる」問題を構造的に回避(InpUseRegimeSystemでON/OFF切替可)。診断用にbuf53(レジーム0/1)を追加。 / 2026-07-10 スパイクADX新規禁止(reason39)追加: スパイク面積300超を検出したらポジション有無に関係なくトリガーし、トリガー時点のADX色(0グレー/1上昇/2下降)と異なる色になるまで新規エントリーを禁止(InpUseSpikeAdxBan,既定true)。既存③(spikeBanActive/haColor,reason37)は保有中にスパイクで決済した場合のみのトリガーだったが、深夜のボラなし局面で平均足がグレー化した後もスパイクの余韻でダマシが出た実例があったため、より確実な独立軸としてADX色を基準に採用(平均足/MA反転は使わない)。グレー経由・逆色いずれでも解除。診断用にbuf50(禁止中フラグ)/buf51(直近トリガー面積,保持型)/buf52(直近トリガーからの経過本数)を追加、弱5波対策の効果検証に利用可(判定ロジックには影響しない観測専用)。 / 2026-07-09c 「勘に頼らない敗因分析」残項目を一括追加(buf44-49): ①再入クールダウン残り本数(cdLeft,buf44) ②ベースMAのグレー閾値距離(|slope|-thOn,buf45) ③長期MAの平滑化傾き実値(buf46)と閾値距離(buf47) ④Wave早い/遅い線の生値(wvMA/wvSlow,buf48/49)。いずれも判定ロジックには一切影響しない観測専用(WYSIWYG/絶対ルール継続遵守)。 / 2026-07-09b スパイク保持型バッファ追加(buf42/43): BufSpikeArea(buf41)は確定した1本の足でしか値が立たない単発パルスのため、エントリー側からは同一足でない限りほぼ0.0しか見えず相関が取れなかった。次のスパイクまで値を保持するBufSpikeAreaLast(buf42)と、経過本数のBufSpikeBarsSince(buf43,未観測=-1)を追加し、「何本前にどれくらいの面積のスパイクがあったか」を常に読めるようにした。 / 2026-07-09 スパイク面積(buf41)をEAへ公開: thisBarSpikeAreaがローカル変数のままでEAから読めなかったのを解消。スイング確定足では閾値未達(300未満)の「不発」も含めて常に実測値を書く=閾値300の妥当性検証に使える。 / 2026-07-08b ZigZag⇔M15を入れ替えて検証開始: InpUseZzFilter=false→true(弱5波フィルター有効化,InpZzMinStrength=40.0)。同時にInpM15ApplyToSell=true→false(SELLはM15対象外の実験構成に再度戻す)。ZigZagが効かないと判断した場合はInpUseZzFilter=false・InpM15ApplyToSell=trueに戻す。 / 2026-07-08 InpM15ApplyToSell既定をfalse→trueに復帰: 2026-07-06の実験(SELLのみM15フィルター対象外)投入直後に敗戦したため、BUY/SELL両方に再度M15フィルターを適用する対称構成に戻した(falseにすればいつでも実験構成へ切替可)。 / 2026-07-06 Ver12.0(_12) ①ADX継続性チェック追加(InpAdxConfirmBars,既定2)=前足グレーからの即時フリップを弾く(reason36) ②ZigZag_ATR(iCustom)を統合し残存強度%フィルターを追加(InpUseZzFilter,既定false=実験投入待ち。reason35=直近確定レッグの反対側到達間近=弱5波) ③M15フィルターの方向別非対称化(InpM15ApplyToSell,既定false=SELLはM15対象外の実験) / 2026-06-20 Ver8.0(_8) 方向MA=WMA34・案Cハイブリッド決済・M15(WMA20)一致フィルター+M15状態buf13/リーズン列・EA_8と番号統一 / 2026-06-22:M15確定足参照(InpM15ConfirmClosed) / 2026-06-22:M15=KAMA20既定・決済案B(平均足反転最優先+理由30/31/32)・出来高フィルター・平均足色buf14 / 2026-06-22:後平滑1・色確認1・M15ライブ足で前倒し / 2026-06-22:平均足一致を必須化(調整波回避ON)で天井づかみ防止 / 2026-06-24:Ver8.3 長期足(M5・既定KAMA360)追加=短期WMA34/中期M15/長期の3本MTFパーフェクトオーダー門番(reason22)・SMA20_CENTERを長期足表示に転用 / 2026-06-24:エントリーM15を確定足要求(InpM15EntryConfirm 0/1/2,既定2)=ライブ点火+確定足門番で深夜グレーのちらつき偽SELL(reason23)を抑止 / 2026-06-24:Ver9.0 ファイル名/版を8→9統一(EAと同番号)・初期値 中期M15期間=15/長期足期間=380・CSVに長期足状態列(平均足|長期足|15分|理由,buf15)追加 / 2026-06-25:Ver9.0 長期線スムージング=色判定の傾きをInpLongSlopeSmooth個平均(各InpLongSlopeStep本幅)・ATR正規化のまま+デッドバンドInpLongGrayThresh+ヒステリシスInpLongHystRatio(線位置は不変=WYSIWYG/本数増やさず)。スパイク一発で長期線が瞬間的に青判定→近フラットをグレー化。旧InpLongSlopeBars/InpLongSlopeThを置換。長期足状態buf15の二重ゼロ上書きバグ修正(EAが正しい長期方向を読めるように) / 2026-06-25:Ver9.0 平均足を一元化=後平滑OHLCをbuf16-19で公開(表示用DokaKotsu_HeikinAshiがiCustomで参照し色だけ付与)。前平滑3/後平滑5(ともSMMA)に統一=見ている平均足と決済判定の平均足を完全一致(旧:インジ後平滑1 vs 表示後平滑5でズレていた)。後平滑1→5で決済はやや滑らか/遅め化(意図的) / 2026-06-25:Ver9.0 確定足ガードInpConfirmClosedBar(既定ON)=エントリー時に直前確定足のWMA34も同方向dに点灯を必須化。ライブ足の途中grey→点灯した単発ブレ(フラッシュ点火/底でのダマシ)を弾く。継続は素通り=速度温存、グレー明けの一発目のみ確定1本待ち。reason24=直前確定足が未点灯 / 2026-06-28:Ver10.0(_10) 波オシレーターを本体に統合=波/シグナル/レジーム/上抜け/下抜けをbuf20-24で公開(Wave_Subは描画専用に)・MAエンジンにTMA/VWMA/ATR Adaptive/ATR Trendを追加(波で全17種対応) / エントリー新ルール:長期足が先頭に点灯(最後に点灯ならreason25で除外,InpUseLongFirst)＋Waveが同方向を最終条件(reason26,InpUseWaveTrigger)。既存フィルター(再入14/クールダウン15/確定足ガード24/平均足一致18/M15門番19,23/長期一致22)は維持 / 2026-06-29:Wave判定を長期足より前へ独立評価し3状態化(26=ウェーブ中立/27=ウェーブ上昇クロス/28=ウェーブ下降クロス,中立帯InpWaveNeutralBand)。22長期不一致・17色確認をallowガード化(エントリー判定は不変・理由の優先順位のみ整理) / 2026-06-30:buf25=5分背景方向(wmaDir)を公開。EAが段階決済モードでグレー継続/MA反転を自前計数して決済する土台(インジ再計算では保有継続中のgrayRunを積めないため) / 2026-06-30:A層(enum/MAエンジン)をDokaKotsu_Core.mqhへ移管しincludeに変更(挙動不変・置き場所のみ。Coreは MQL5\\Include\\ に配置) / 2026-07-05:ADXトレンドフィルター追加=DokaKotsu_Trend_FilterのADX(既定期間12)+EMA(50)ロジックを本体に統合(buf26=ADXState/WYSIWYG)。ADX<閾値(既定25)=グレーの時のみ最終ゲートで禁止(reason29)。方向不一致(色反転)は見ない=ラグ回避。既存グレーライン環境認識(長期/M15レンジ判定)とは別軸のトレンド終盤ノイズ除去フィルター"
 #property indicator_chart_window
 #property indicator_buffers 64
 #property indicator_plots   11
@@ -489,7 +489,7 @@ input bool   InpUseAdxFilter    = true;                     // ADXグレー(ト�
 //--- ★2026-07-08追加: スパイク(急変)フィルター(DokaKotsu_Spikek_Filterと同じ考え方を本体に内蔵)
 input bool   InpUseSpikeExit     = true;    // スパイク面積が閾値以上で保有中なら決済する
 input double InpSpikeAtrMultiplier = 2.0;   // スパイク検出用ATR倍率(スイング確定に必要な逆行幅)
-input double InpSpikeAreaThresh  = 300.0;   // スパイクとみなす面積(値幅×継続バー数)の閾値
+input double InpSpikeAreaThresh  = 1000.0;  // スパイクとみなす面積(値幅×継続バー数)の閾値 ★2026-08-14: 300→1000に変更
 input bool   InpUseSpikeEntryBan = true;    // スパイク決済後、平均足が変わるまで新規エントリー禁止
 input bool   InpUseSpikeAdxBan   = true;    // ★2026-07-10追加: スパイク面積300超→ADX色が変わるまで新規禁止(ポジション有無を問わない。弱5波/深夜ダラダラ対策)
 
@@ -589,7 +589,10 @@ input bool   InpResetTradeStateLog  = false;                   // 起動時に�
 
 input group "⑧ マーケットステイトのSP駆動源(2026-07-11変更: 外部Spikek_Filter参照)"
 input bool   InpUseExternalSpikeForState = true;              // SP(マーケットステイト)を内部計算ではなく外部DokaKotsu_Spikek_Filterの「合格」判定で駆動する
-input string InpSpikeFilterName = "DokaKotsu_Spikek_Filter";  // 参照する外部インジ名(iCustom既定値で呼び出し。異なるinput値で運用している場合は要注意)
+input string InpSpikeFilterName = "DokaKotsu_Spikek_Filter";  // 参照する外部インジ名
+// ★2026-08-16追加: MACDフィルター免除ゲート(reason44)
+input bool   InpUseMacdTimingRelief = true;                        // ★2026-08-16: true=MACDが同方向ならreason41を免除してエントリー許可(エントリー回数増加目的)
+input string InpMacdFilterName = "DokaKotsu_MACD_Filter";         // ★2026-08-16: 参照するMACDフィルター名(BufColorIdx/buf1: 0=上昇/1=下降/2=グレー)(iCustom既定値で呼び出し。異なるinput値で運用している場合は要注意)
 
 input group "線幅（描画）"
 input int    InpW_MaUp        = 5;                          // MA_UP   の幅(0〜5、0=非表示)
@@ -628,6 +631,7 @@ double BufHaClose[];     // ★2026-06-25: 平均足 終値(後平滑後)。Copy
 
 //=== アラート重複防止 ============================================
 datetime g_lastAlertTime = 0;
+int      g_lastRatesTotal = 0;   // ★2026-08-15追加: 週末タイマー用・前回rates_total記録
 
 double BufWaveVal[];     // ★波: (早MA-遅EMA)/ATR。描画なし・Wave_SubがCopyBuffer(20)で読む
 double BufWaveSig[];     // ★波: シグナル（波のEMA）。CopyBuffer(21)
@@ -759,7 +763,8 @@ int hLong=-1;                        // ★Ver8.3: 長期足(M5・既定KAMA360)
 int hEMA1, hSMA1, hATR1;             // M1
 int hAdx=INVALID_HANDLE, hAdxEma=INVALID_HANDLE;   // ★2026-07-05: ADXトレンドフィルター用(ADX期間12・EMA期間50)
 // ★2026-07-17削除: hZigZag(ZigZag_ATR外部サブインジハンドル)は使わない方針となったため削除
-int hSpikeFilter=INVALID_HANDLE;                   // ★2026-07-11追加: マーケットステイトのSP駆動用。DokaKotsu_Spikek_Filterの「合格(BufPass)」をそのまま参照する(表示専用・取引ロジックのreason39/spikeAdxBanActiveとは無関係)
+int hSpikeFilter=INVALID_HANDLE;                   // ★2026-07-11追加
+int hMacdFilter=INVALID_HANDLE;                    // ★2026-08-16追加: MACDフィルター免除ゲート用(DokaKotsu_MACD_FilterのBufColorIdx/buf1を参照): マーケットステイトのSP駆動用。DokaKotsu_Spikek_Filterの「合格(BufPass)」をそのまま参照する(表示専用・取引ロジックのreason39/spikeAdxBanActiveとは無関係)
 int hZzAtr=INVALID_HANDLE;                         // ★2026-07-06: ZigZag判定用ATR(InpZzAtrPeriod)。ZigZag_ATR.mq5と同じ式を本体内で複製計算するため使用
 //--- ★2026-07-07(_13) context専用ハンドル(判定には使わない・観測のみ)
 int hRsi  = INVALID_HANDLE;                        // RSI(14)
@@ -883,7 +888,7 @@ void LoadStateCacheAndOpenHandle()
    {
       g_stateFileHandle = FileOpen(g_stateLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
       if(g_stateFileHandle != INVALID_HANDLE) FileSeek(g_stateFileHandle, 0, SEEK_END);
-      Print("[indicator_16] 状態ログ: 既にキャッシュ済み(", g_stateCacheCount, "件)のため全件再読込をスキップしました");
+      Print("[indicator_17] 状態ログ: 既にキャッシュ済み(", g_stateCacheCount, "件)のため全件再読込をスキップしました");
       return;
    }
 
@@ -910,7 +915,7 @@ void LoadStateCacheAndOpenHandle()
    if(InpResetStateLog && FileIsExist(g_stateLogPath))
    {
       FileDelete(g_stateLogPath);
-      Print("[indicator_16] InpResetStateLog=true のため状態ログを削除しました: ", g_stateLogPath);
+      Print("[indicator_17] InpResetStateLog=true のため状態ログを削除しました: ", g_stateLogPath);
    }
 
    // ★2026-07-11f追加: 起動のたびに古い状態ラベル(DK_MS_)も一旦すべて削除する。
@@ -921,7 +926,7 @@ void LoadStateCacheAndOpenHandle()
    g_stateFileHandle = FileOpen(g_stateLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(g_stateFileHandle == INVALID_HANDLE)
    {
-      Print("[indicator_16] 状態ログを開けません err=", GetLastError(), " path=", g_stateLogPath);
+      Print("[indicator_17] 状態ログを開けません err=", GetLastError(), " path=", g_stateLogPath);
       return;
    }
 
@@ -946,7 +951,7 @@ void LoadStateCacheAndOpenHandle()
    ArrayResize(g_stateCacheState, g_stateCacheCount);
    g_stateCacheCap = g_stateCacheCount; // ★2026-07-11h追加: AppendCachedStateの容量追跡と同期(でないと次回追記時に誤って配列を縮小し、読み込み済みデータを破壊してしまう)
    FileSeek(g_stateFileHandle, 0, SEEK_END); // 以後はここに追記していく
-   Print("[indicator_16] 状態ログ読込完了: ", g_stateCacheCount, "件 path=", g_stateLogPath);
+   Print("[indicator_17] 状態ログ読込完了: ", g_stateCacheCount, "件 path=", g_stateLogPath);
 }
 
 //+------------------------------------------------------------------+
@@ -1002,7 +1007,7 @@ void LoadTradeStateCacheAndOpenHandle()
    {
       g_tsFileHandle = FileOpen(g_tsLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
       if(g_tsFileHandle != INVALID_HANDLE) FileSeek(g_tsFileHandle, 0, SEEK_END);
-      Print("[indicator_16] 取引状態ログ: 既にキャッシュ済み(", g_tsCacheCount, "件)のため全件再読込をスキップしました");
+      Print("[indicator_17] 取引状態ログ: 既にキャッシュ済み(", g_tsCacheCount, "件)のため全件再読込をスキップしました");
       return;
    }
 
@@ -1024,13 +1029,13 @@ void LoadTradeStateCacheAndOpenHandle()
    if(InpResetTradeStateLog && FileIsExist(g_tsLogPath))
    {
       FileDelete(g_tsLogPath);
-      Print("[indicator_16] InpResetTradeStateLog=true のため取引状態ログを削除しました: ", g_tsLogPath);
+      Print("[indicator_17] InpResetTradeStateLog=true のため取引状態ログを削除しました: ", g_tsLogPath);
    }
 
    g_tsFileHandle = FileOpen(g_tsLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(g_tsFileHandle == INVALID_HANDLE)
    {
-      Print("[indicator_16] 取引状態ログを開けません err=", GetLastError(), " path=", g_tsLogPath);
+      Print("[indicator_17] 取引状態ログを開けません err=", GetLastError(), " path=", g_tsLogPath);
       return;
    }
 
@@ -1062,7 +1067,7 @@ void LoadTradeStateCacheAndOpenHandle()
    ArrayResize(g_tsCache, g_tsCacheCount);
    g_tsCacheCap = g_tsCacheCount; // ★容量追跡を同期(市場状態フリーズと同じ理由=次回追記時の誤縮小防止)
    FileSeek(g_tsFileHandle, 0, SEEK_END);
-   Print("[indicator_16] 取引状態ログ読込完了: ", g_tsCacheCount, "件 path=", g_tsLogPath);
+   Print("[indicator_17] 取引状態ログ読込完了: ", g_tsCacheCount, "件 path=", g_tsLogPath);
 }
 
 //+------------------------------------------------------------------+
@@ -1086,7 +1091,7 @@ int OnInit()
    //   (直前のOnDeinitがどんな理由で呼ばれたか)をログに残す。田島さんの実機で短時間に複数回
    //   OnInitが呼ばれている(ZigZag_ATR警告が22:54/22:57/01:15と複数回出ている)ことが判明したため。
    g_onInitCount++;
-   Print("[indicator_16] OnInit実行(", g_onInitCount, "回目) UninitializeReason=", UninitializeReason());
+   Print("[indicator_17] OnInit実行(", g_onInitCount, "回目) UninitializeReason=", UninitializeReason());
    SetIndexBuffer(0, BufEmaNorm,  INDICATOR_DATA);
    SetIndexBuffer(1, BufEmaSpike, INDICATOR_DATA);
    SetIndexBuffer(2, BufWmaUp,    INDICATOR_DATA);
@@ -1228,8 +1233,16 @@ int OnInit()
    if(InpUseExternalSpikeForState)
    {
       hSpikeFilter = iCustom(_Symbol, _Period, InpSpikeFilterName); // ★2026-07-11追加: 既定input値で呼び出し
+   if(InpUseMacdTimingRelief) // ★2026-08-16追加: MACDフィルター免除ゲート用ハンドル生成
+   {
+      hMacdFilter = iCustom(_Symbol, _Period, InpMacdFilterName);
+      if(hMacdFilter == INVALID_HANDLE)
+         Print("[indicator_17] 警告: MACDフィルターハンドル生成失敗。DokaKotsu_MACD_Filterがチャートにアタッチされているか確認してください");
+      else
+         Print("[indicator_17] MACDフィルターハンドル生成OK: ", InpMacdFilterName);
+   }
       if(hSpikeFilter == INVALID_HANDLE)
-         Print("[indicator_16] ", InpSpikeFilterName, " のハンドル作成失敗。マーケットステイトのSPは常にfalse扱いになります。");
+         Print("[indicator_17] ", InpSpikeFilterName, " のハンドル作成失敗。マーケットステイトのSPは常にfalse扱いになります。");
    }
    // ★2026-07-06: ZigZag判定ロジック用ATR。ZigZag_ATR.mq5と同一式(ATR×倍率)を本体内で複製し、
    //   バッファ位置ベースの参照による未来参照(リペイント/先読み)を避けるため、判定は自前で再計算する。
@@ -1246,7 +1259,7 @@ int OnInit()
       Print("ハンドル作成失敗");
       return(INIT_FAILED);
    }
-   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu_indicator_16"); // 2026-07-21修正: 15→16へバージョンアップ(VolScore最終ゲート追加)に伴いファイル名と一致させる
+   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu_indicator_17"); // 2026-08-14修正: 16→17へバージョンアップ(スパイク面積閾値300→1000)に伴いファイル名と一致させる
 
    // チャート上の情報ラベル(ファイル名/バージョン)。既定OFF=他表示と重なるため非表示。
    string vname = "DK2_version_label";
@@ -1283,6 +1296,13 @@ int OnInit()
    if(InpUseStateFreeze) LoadStateCacheAndOpenHandle(); // ★2026-07-11追加: 相場状態フリーズキャッシュ
    if(InpUseTradeStateFreeze) LoadTradeStateCacheAndOpenHandle(); // ★2026-07-14追加: 取引状態フリーズキャッシュ(確定足の幻ポジション対策)
 
+   // ★2026-08-15追加: 土日週末タイマー。ティックが止まる土日にOnCalculateが呼ばれなくなる問題への対策。
+   //   月曜以降の通常稼働時はティックが来るため不要。OnTimerでrates_totalの変化を監視し、
+   //   週末かつ変化なしの時のみIndicatorSetIntegerでダミー更新をかけてOnCalculateを再トリガーする。
+   //   IndicatorSetIntegerはOnCalculateのみ再起動し、OnInitは発火させない(7月17日フリーズとは無関係)。
+   EventSetTimer(30); // 30秒ごとにOnTimerを呼ぶ(週末タイマー用)
+   Print("[indicator_17] EventSetTimer(30) 登録完了");
+
    return(INIT_SUCCEEDED);
 }
 
@@ -1290,7 +1310,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    // ★2026-07-17追加: OnInit繰り返し現象の原因調査用。
-   Print("[indicator_16] OnDeinit実行 reason=", reason, "(REASON_ACCOUNTWINDOWCLOSE=8/REASON_CHARTCLOSE=1/REASON_PARAMETERS=3/REASON_RECOMPILE=4/REASON_REMOVE=0/REASON_TEMPLATE=6等)");
+   Print("[indicator_17] OnDeinit実行 reason=", reason, "(REASON_ACCOUNTWINDOWCLOSE=8/REASON_CHARTCLOSE=1/REASON_PARAMETERS=3/REASON_RECOMPILE=4/REASON_REMOVE=0/REASON_TEMPLATE=6等)");
    // ★背景(BG_)とバージョンラベルは終了時に消さない。
    //   EAの iCustom 解放/再コンパイルでこの OnDeinit が走っても背景を残すため
    //   (背景がEAに連動して消える問題の排除)。古い背景の掃除は OnInit 側で行う。
@@ -1298,6 +1318,32 @@ void OnDeinit(const int reason)
    if(hSpikeFilter != INVALID_HANDLE) IndicatorRelease(hSpikeFilter); // ★2026-07-11追加
    if(g_stateFileHandle != INVALID_HANDLE) FileClose(g_stateFileHandle); // ★2026-07-11追加
    if(g_tsFileHandle != INVALID_HANDLE) FileClose(g_tsFileHandle); // ★2026-07-14追加
+   if(hMacdFilter != INVALID_HANDLE) { IndicatorRelease(hMacdFilter); hMacdFilter = INVALID_HANDLE; } // ★2026-08-16追加
+   EventKillTimer(); // ★2026-08-15追加: 週末タイマー解放(EventSetTimer対)
+}
+
+//+------------------------------------------------------------------+
+//| ★2026-08-15追加: 週末タイマー。土日ティック停止中にOnCalculateを  |
+//|   再トリガーするためのタイマーハンドラ。                           |
+//|   週末(土/日)かつrates_totalが前回と変わっていない場合のみ発動。  |
+//|   IndicatorSetIntegerはOnCalculateのみ再起動しOnInitは発火しない。 |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   bool isWeekend = (dt.day_of_week == 0 || dt.day_of_week == 6); // 0=日曜/6=土曜
+   if(!isWeekend) return; // 平日はタイマー不要(ティックが来るため)
+
+   int currentTotal = Bars(_Symbol, _Period);
+   if(currentTotal == g_lastRatesTotal && currentTotal > 0)
+   {
+      // rates_totalが増えていない=ティックが来ていない=週末停止中
+      // IndicatorSetIntegerでダミー更新をかけてOnCalculateを再トリガー
+      IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
+      Print("[indicator_17] OnTimer: 週末タイマー発動 再描画トリガー(rates_total=", currentTotal, ")");
+   }
+   g_lastRatesTotal = currentTotal;
 }
 
 //+------------------------------------------------------------------+
@@ -1387,6 +1433,16 @@ int OnCalculate(const int rates_total,
    //   田島さんの絶対的な「スパイク」定義とズレる(相対的に小さいと300以上でも非表示になる)ため、
    //   生の面積値(buf2)を直接読み、indicator_13自身のInpSpikeAreaThresh(既定300)で絶対判定する方式に変更。
    double extSpikeArea[];
+   // ★2026-08-16追加: MACDフィルター(BufColorIdx/buf1)を毎回読み込む
+   double macdColorBuf[];
+   bool   extMacdOk = false;
+   if(InpUseMacdTimingRelief && hMacdFilter != INVALID_HANDLE)
+   {
+      ArraySetAsSeries(macdColorBuf, false);
+      ArrayResize(macdColorBuf, rates_total);
+      extMacdOk = (CopyBuffer(hMacdFilter, 1, 0, rates_total, macdColorBuf) > 0);
+   }
+
    bool extSpikeOk = false;
    if(InpUseExternalSpikeForState && hSpikeFilter != INVALID_HANDLE)
       extSpikeOk = (CopyBuffer(hSpikeFilter, 2, 0, rates_total, extSpikeArea) > 0);
@@ -2707,6 +2763,31 @@ int OnCalculate(const int rates_total,
             {
                if(timingMissed)       BufReason[i]=41.0;   // ①WMA/M15タイミングずれ(WMA先行InpWmaM15MaxBars本超・M15未追随)
                else if(regimeSqueeze) BufReason[i]=42.0;   // ②BB×KC未ブレイク(スクイーズ中)
+            }
+
+            // ★2026-08-16追加: MACDフィルター免除ゲート(reason44)
+            //   ロジックCで timingMissed(reason41) だけが原因で見送りになった場合に限り、
+            //   MACD方向が同方向(0=上昇緑/1=下降赤)かつスパイクADX禁止なしなら免除してエントリー許可。
+            //   MACDグレー(BufColorIdx=2)・スパイクADX禁止中・timingMissed以外の理由は免除対象外。
+            //   WYSIWIGルール遵守: ロジックはインジのみが持つ(EA側は変更なし)。
+            if(InpEntryMode==ENTRY_MODE_C_WMA
+               && !allowFinal            // 現在は見送り判定
+               && timingMissed           // reason41が原因の場合のみ免除対象
+               && !regimeSqueeze         // スクイーズ中は免除しない
+               && !spikeAdxBanActive     // スパイクADX禁止中は免除しない
+               && !longOppose            // 長期足逆方向は免除しない
+               && InpUseMacdTimingRelief // 機能がONの場合のみ
+               && extMacdOk && i < ArraySize(macdColorBuf)) // バッファ取得成功かつインデックス有効
+            {
+               // BufColorIdx: 0=上昇(緑)/1=下降(赤)/2=グレー
+               int macdDir = (int)MathRound(macdColorBuf[i]);
+               bool macdMatch = (d == 1 && macdDir == 0)   // BUY方向かつMACDが緑(上昇)
+                             || (d ==-1 && macdDir == 1);  // SELL方向かつMACDが赤(下降)
+               if(macdMatch)
+               {
+                  allowFinal = true;
+                  BufReason[i] = 44.0; // ★reason44: MACDフィルター免除エントリー(timingMissed免除)
+               }
             }
 
             // ★2026-07-21追加: ボラティリティ(VolScore)最終ゲート。ロジックA/B/Cいずれで
