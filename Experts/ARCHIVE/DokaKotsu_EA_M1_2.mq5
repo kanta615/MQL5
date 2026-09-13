@@ -1,5 +1,29 @@
 ﻿//+------------------------------------------------------------------+
-//|                              DokaKotsu_EA_17.mq5                  |
+//|                              DokaKotsu_EA_M1_2.mq5                  |
+//|                                                                  |
+//|  ■ 修正日: 2026-09-08  修正内容(ReasonTextにcase 49を追加)        |
+//|    参照先indicator_1M_2に、1分足限定・一時措置のMACD最終ゲート    |
+//|    (InpUseMacdFinalGate、VolScoreの代替)を追加し、そのブロック   |
+//|    理由としてreason49「MACD不一致(MACD最終ゲート,VolScore代替)」 |
+//|    が新規に発生するようになったため、EA側のReasonText()に追加    |
+//|    (これが無いと reason CSV / チャート上の理由表示が「(未評価)」 |
+//|    のままになる)。判定ロジック自体はこれまで通りindicator側に    |
+//|    一元化されたまま、EA側は表示ラベルの追加のみ。                 |
+//|                                                                  |
+//|  ■ 修正日: 2026-09-07  修正内容(【重大】EA停止後もDK_EA_HB_<magic>|
+//|    が残り、Watchdog/monitoringパネルが「EA稼働中」と誤表示する    |
+//|    不具合を修正)                                                  |
+//|    実機で発生: OnInit()がインジ読込失敗等でINIT_FAILEDを返して    |
+//|    EAが除去された直後、以前のセッションで書かれた古いHBがまだ     |
+//|    タイムアウト秒数(InpEaTimeoutSec)以内だったため、Watchdogと    |
+//|    DokaKotsu_monitoringパネル(旧Dashboard)の両方が実際には        |
+//|    死んでいるEAを「稼働中」と表示し続けていた。OnDeinit()は       |
+//|    OnInit失敗時(reason=REASON_INITFAILED)も含めて必ず呼ばれる     |
+//|    仕様のため、OnDeinit()の先頭でGlobalVariableDelによりHBを      |
+//|    即座に削除するよう変更。これによりEAが消えた瞬間に「停止した」 |
+//|    ことが自己申告され、Watchdog/monitoring側は次回チェック時      |
+//|    (最短10秒後)に即座に停止中と判定できるようになった            |
+//|    (従来はタイムアウト秒数分、最大90秒近く誤表示が続いていた)。   |
 //|                                                                  |
 //|  ■ 修正日: 2026-07-25  修正内容(【重大】entry/result JSONLの     |
 //|    排他ロック不具合を修正)                                        |
@@ -142,34 +166,14 @@
 //|      を追加(indicator側の変更、本ファイルには影響なし)。          |
 //|    ③本ヘッダー直下に、reason CSVの全項目名リストを追加(下記)。   |
 //|                                                                  |
-//|  ■ reason CSVの列名一覧(reason_YYYYMMDD.csv、WriteReasonRow参照)|
-//|    後から見て分かるように、出力順そのままに列挙する。             |
-//|     1  time             日時(JST)                               |
-//|     2  dir              方向(ReasonDir)                          |
-//|     3  code             reason番号(系統②、10-40等)              |
-//|     4  ha               平均足の状態文字                          |
-//|     5  long             長期足の状態文字                          |
-//|     6  m15              15分足の状態文字                          |
-//|     7  adx              ADXの状態文字                             |
-//|     8  zigzag           ZigZag残存強度%                           |
-//|     9  reason           [SQ/TR/SP]+reason日本語文+[直近決済]+ATR  |
-//|     10 ea_note          ノーポジ/保有中/エントリーBUY等           |
-//|     11 pos              現在ポジション方向                        |
-//|     12 cooldown         クールダウン残                            |
-//|     13 time_filter      時間帯フィルター中か                      |
-//|     14 order_err        直近の発注エラーコード                    |
-//|     15 shadow_wave      後段Wave判定の影(buf54,観測専用)          |
-//|     16 shadow_adx       後段ADX継続性判定の影(buf55,観測専用)     |
-//|     17 shadow_zz        後段ZigZag判定の影(buf56,観測専用)        |
-//|     18 regime           BB×KCレジーム 0=トレンド/1=スクイーズ     |
-//|     19 regime_ratio     レジーム圧縮比率(1.0未満=圧縮/以上=解放)  |
-//|     20 old_chain_reason ロジックB運用時、旧ロジックchain(A)なら    |
-//|                         どう判定したか(0=許可していたはず)        |
-//|     21 wave_color       チャート表示の波の色(buf22,観測専用)      |
-//|                         reason26/27/28とは別計算なので要注意       |
-//|     22 volscore         ボラティリティ(VolScore,%。buf61)。       |
-//|                         InpVolScoreLowPct未満でreason43として      |
-//|                         エントリー最終ゲートにも使われる(2026-07-21追加)|
+//|  ■ reason CSVの列名一覧について                                  |
+//|    ★2026-08-27(3回目)修正: この場所にあった列一覧は2026-07-21で    |
+//|    更新が止まり、以後追加された列(spike_area_last/wma_slope_dist/  |
+//|    dbg_*/fast_spike_*等)が反映されないまま放置されていた(2箇所で   |
+//|    管理していたため)。今後は唯一の管理場所をWriteReasonRow()関数   |
+//|    冒頭のコメントに統一する(ヘッダー行・値書き込み行のFileWrite    |
+//|    と同じ関数内にあるため、コードと同時に更新しないと気づきやすい)。|
+//|    列の意味を確認したい時は、本ファイル内でWriteReasonRowを検索。   |
 //|                                                                  |
 //|    ※系統①(EA停止理由0-11・オセアニア/CPI/連敗停止等)は           |
 //|      このCSVとは別の仕組み(Watchdog表示用)。混同注意。            |
@@ -252,15 +256,15 @@
 //|  ※ インジと同じチャート(同じM5・同じXAUUSD)に載せること。     |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "17.00"
+#property version   "1M2.00"
 #property strict
 
 #include <Trade/Trade.mqh>
 CTrade trade;
 
 //=== バージョン(最新確認用) =======================================
-#define EA_VERSION "v15.0"
-#define EA_BUILD   "2026-08-14(2回目) EA_17 / 16→17へバージョンアップ。参照先インジをDokaKotsu_indicator_16→_17に変更(スパイク面積閾値InpSpikeAreaThreshの既定値300→1000への変更に伴う)。この閾値はインジ側の単一入力値でreason33/34・reason39・マーケットステイトSP判定の3箇所に共通で使われている値のため、EA側はreason CSV/entry・result snapshotの値がそのまま1000基準に変わるだけで、EA自体のロジック・ファイル名以外のコード変更は無し。ファイル名/#property version/InpIndicatorNameを16→17へ統一。 / 2026-08-14 EA_16d / ★【重大】トレーリング発動(InpTrailGiveback)がSLを一切張らない不具合を修正。従来はg_peakPipMFE(ピーク含み益)からInpTrailGiveback(既定25%)吐き出した瞬間にg_trailArmedをtrueにし『平均足決済モードへ切替』するだけで、その後は平均足反転(reason30)が出るまで指標のシグナル待ちのみだった(価格ベースのSLは一切変更していなかった)。実例2026-08-14 09:30 SELLエントリー、09:45にMFE到達→トレーリング発動(ea_note記録)、しかし平均足反転がラグったため09:57まで含み益が65.2pip→0(建値)まで無制限に溶けた。対策: g_trailArmedがtrueになった瞬間、ArmTrailStopSL()を新設して発動時点のギブバック水準(peakPipMFE*(1-InpTrailGiveback))を価格SLとして即座にPositionModifyで建てるよう変更(ManageBreakevenの段階建値と同じ『利側にしか動かさない』パターンを踏襲、既存の段階建値SLより不利な位置には絶対に置き換えない)。これにより平均足反転を待つ間も価格ベースの下限が機能し、無制限のギブバックを防ぐ。判定ロジック(エントリー/インジ側)には一切影響なし、EA側のリスク管理(SL)のみの変更。田島さんの実トレード分析(09:30 SELL、決済09:57:28、pips=0.00)がきっかけ。 / 2026-07-25 EA_16c / ★【重大】entry_*.jsonl/result_*.jsonlが排他ロックされ、read_ea_trades.py(Python)はもちろん、エクスプローラーでのコピーやメモ帳での閲覧まで「使用中」で弾かれる不具合を修正。2026-07-15dでファイルを開いたまま保持する方式(GetDailyFileHandle)に変えて以降、FileOpenの引数にFILE_SHARE_READが無く、EA稼働中は他プロセスから一切読めない排他ロックのままだった(田島さんが該当jsonlを開こうとして「使用中」エラーになった報告で発覚)。GetDailyFileHandleのFileOpen引数にFILE_SHARE_READを追加し、書き込みはEAが保持したまま、他プロセスからの読み取り(read_ea_trades.pyの自動取込含む)を常に許可するよう修正。reason_YYYYMMDD.csv(WriteReasonRow)は元々毎回開閉する方式のため対象外(今回のロック不具合は発生していない)。 / 2026-07-21 EA_16b / ★参照先インジをDokaKotsu_indicator_15→_16に変更(ボラティリティ(VolScore)最終ゲート追加に伴う対応)。indicator_16がエントリー判定の最終チェックとしてVolScore(EMA(High-Low,5)とEMA(それ,20)の乖離率%)を追加し、InpVolScoreLowPct(既定0%)未満をグレー(ボラ不足)としてreason43でブロックするようになったため、EA側は①ReasonTextにcase 43を追加、②reason CSVの列構成末尾にvolscore(buf61の値をそのまま記録、判定には未使用の記録専用)を追加、の2点で追随した。判定ロジック自体はこれまで通りindicator側に一元化されたまま、EA側の発注ロジックへの変更はなし。 / 2026-07-20 EA_16 / ★DokaKotsu_Dashboard.mq5の■(停止)ボタン挙動を変更: 従来は新規禁止のみだったが、保有中に押された場合はその場で保有を強制決済してから停止するよう変更(田島さん要望)。保有していなければ従来通り新規禁止のみ。OnTick内でinWeekendFlatブロックの直後にdashPause&&pos!=0の分岐を追加し、CommandExit(5,\\\"ダッシュボード停止\\\")→ForceCloseMyPositions経由で他の強制決済(緊急逆行/イベント/週末)と全く同じ再送の仕組みに乗せた。g_lastExitMethod=55(ExitGroup範囲を50-54→50-55へ拡張)・g_exitKind=5を新設。判定(押す/押さないの意思決定)はダッシュボード側のボタン、実行(決済発注)はEA側という役割分担はこれまで通り変更なし。 / 2026-07-16 EA_15b / ★小売売上高(Retail Sales)をイベント予防線の対象に追加(EV_RETAIL新設)。他5指標(FOMC/CPI/NFP/ISM/PPI)と全く同じ扱い=RefreshCalEvent()は指標ごとに個別ロジックを持たず、分類さえされれば共通のInpEvStopHourJST(既定14時JST)起点・InpEvAfterHours時間後までのルールが自動的に適用されるため、ClassifyEvent()への追加だけで済んだ。DK_StopReasonCode=14、evName=\"小売売上高発表前停止\"。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにRETAILを追加。 / 2026-07-15h EA_15 / ★14→15へバージョンアップ。エントリーリーズンの修正2点に対応: ①WMA/M15タイミングずれの見送り確定(reason41,InpWmaM15MaxBars既定3=15分)。WMAが点灯してから既定3本以内にM15が追いつかなければ、以後M15が追いついてもそのWMA継続中は見送り確定(田島さん整理: 15分側が遅れる=波が速い=15分足で見ると終盤でリスクが高いため)。②BB×KC(regimeSqueeze)条件をロジックCに追加(reason42)。まだスクイーズ中(未ブレイク)ならWMA/M15/長期足が揃っていても見送り。参照先インジをDokaKotsu_indicator_15に変更、ReasonTextにreason41/42を追加。 / 2026-07-15g EA_14h / ★DokaKotsu_Dashboard.mq5の■(取引停止)/▶(復活)ボタンと連動。IsDashboardPaused()新設(GlobalVariable DK_DASH_TRADEPAUSE_<magic>を参照)。新規エントリーの統合判定・停止理由テキスト・DK_StopReasonCode(新規コード13)に組み込み。保有中ポジションはこのボタンでは決済されない(新規停止/再開のみ)。 / 2026-07-15f EA_14g / ★exit_groupに\"RISK\"(EA側リスク管理の強制決済)を追加し、5パターンに新しいexit_method番号(50=緊急逆行/51=イベント決済/52=週末強制/53=ウォッチドッグ)を割り当て。従来この5パターンはg_lastExitMethodを更新しないか(緊急逆行/イベント/週末)、reason33(スパイク面積決済)と同じ33を使っていた(ウォッチドッグ)ため、exit_groupが実態と異なる分類(直前の値の使い回し、またはSPIKEへの誤分類)になるバグがあった。ウォッチドッグは53に変更し衝突を解消。なおSL(ブローカー側の逆指値直接約定)はOnTradeTransaction未実装のため、現状result_snapshot自体が記録されない既知の課題として残る(54を予約済み・別途対応予定)。 / 2026-07-15e EA_14f / ★イベント新規禁止ロジックを全面刷新。従来の「指標ごとに発表hb時間前から」(CPI/NFP/ISM/PPI=3h、FOMC=10h)+リーク時間帯(発表30分前は新規OK)+発表1分前の建値移動(スパイク保険)という仕組みを廃止し、対象5指標(FOMC/CPI/NFP/ISM/PPI)すべて共通で「発表当日のJST14時(InpEvStopHourJST)から新規禁止、発表からInpEvAfterHours(既定1)時間後まで継続」というシンプルな方式に変更(米国休日停止と同じ考え方に統一)。発表が0時〜14時未満(FOMC等の深夜発表)の場合は前日14時が起点になるよう計算。InpFomcHoursBefore/InpCpiNfpHoursBefore/InpEvLeakMin/InpEvAfterMin/InpEvBeMinBefore・g_evNeedBE・ForceEventBreakeven()は削除。g_evStateは0/1のみ(リーク状態=2は廃止)。 / 2026-07-15d EA_14e / ★【重大】entry/result JSONLが書込のたびに既存内容ごと消えるバグを修正。田島さんの環境で実際に確認(05:40の記録がファイルに残ったまま11:40に新規書込したところ、05:40分が消えて11:40分だけの1行になった=ファイルサイズが1行分のまま)。原因はMQL5のFileOpen(FILE_READ|FILE_WRITE)+FileSeek(SEEK_END)方式が、ドキュメント上は追記できるはずが実際には信頼できないという既知の問題(同様の報告がMQL5フォーラムに多数あり)。対策として、ファイルを都度開閉せずEA稼働中は開いたまま保持し(GetDailyFileHandle新設,g_entryFileHandle/g_resultFileHandle)、日付が変わった時だけ閉じて次の日のファイルを新規に開く方式へ変更。OnDeinitでハンドルを確実にクローズ。 / 2026-07-15c EA_14d / ★entry_*.jsonl/result_*.jsonlの文字コードバグを修正。コードページ未指定のFileOpenだとシステムANSI(日本語WindowsはCP932)で書かれてしまい、Python側(json.load時UTF-8前提)でexit_why等の日本語項目が文字化けしていた(数値項目には影響なし)。mt5_calendar_today.json(2026-07-08)で使ったCP_UTF8明示の書き方に統一して解消。実データ(result_20260715.jsonl)の生バイトでCP932混入を確認済み。 / 2026-07-15b EA_14c / ★決済理由の3分類(exit_group)を追加。田島さんとの会話で判明した誤解を訂正: reason34(ウェーブクロス救済)は独立した4つ目の決済理由ではなく、reason33(スパイク面積直接決済)が次の足で間に合わなかった時の保険であり、あくまで『スパイク決済』という1つの仕組みの一部。決済は本質的に平均足(30)/WMA(31,32)/スパイク(33,34)の3種類しかないという整理に基づき、ExitGroup()新設・result_snapshotにexit_group(\"HA\"/\"WMA\"/\"SPIKE\")を追加した。既存のexit_method(30-34の生番号)はそのまま残し、分類だけを別フィールドとして追加(記録専用・決済ロジックへの影響なし)。 / 2026-07-15 EA_14b / ★PPI(生産者物価指数)をイベント予防線の対象に追加(EV_PPI新設)。CPIと同じ扱い(発表前hbはInpCpiNfpHoursBeforeのまま自動適用、DK_StopReasonCode=12、evName=\"PPI発表前停止\")。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにPPIを追加要(別途反映が必要)。 / 2026-07-13 パターンB対応: reason CSVにold_chain_reason列(indicator buf59)を追加、entry_snapshot(JSON)にもold_chain_reasonを追加。indicator_14がInpEntryModeBBKCOnly=trueの間、実際の発注はBB×KC(regime)+再エントリーロックのみで行われるが、この列で「もし従来の全フィルターのままだったらどう判定されたか(0=旧ロジックでも許可)」を確認できるようにした。EA自体の発注ロジック(buf7/8/9読取)は変更なし=判定は完全にindicator側に一元化されたまま。決済ロジックへの影響なし。 / 2026-07-12b EA_14 / ★13→14へバージョンアップ。reason CSV・entry_snapshot(JSON)にBB/KCレジーム(regime=indicator buf53,regime_ratio=indicator buf58・新規)を追加(判定ロジックへの影響なし・記録専用)。参照先インジをDokaKotsu_indicator_14に変更。 / 2026-07-10b EA_13h / ★indicator_13(2026-07-10e)の相場状態(buf57,SQ/TR/SP)対応。reason CSVのreason列先頭に状態接頭辞([SQ]/[TR]/[SP])を必ず付与するMarketStateText()を追加し、どのブロック理由がどの状態の中で起きたことかを一目で判別できるようにした(取引ロジックへの影響なし・記録専用)。 / 2026-07-10 EA_13g / ★indicator_13(2026-07-10)のレジーム判定(buf53,reason40)・スパイクADX禁止(buf50-52,reason39)・後段フィルター影判定(buf54-56)への対応。①entry_snapshotのjudgmentにspike_adx_ban_active/trigger_area/bars_since(buf50-52)・regime(buf53)・shadow_wave/adx/zz(buf54-56)を追加。②reason CSVにshadow_wave/adx/zz(buf54-56)の3列を追加=reason40等の上流ブロックでその足の実判定が隠れていても、Wave(26/27/28)・ADX継続性(29/36)・ZigZag(35)がその時点で通過/ブロックのどちらだったか常に記録できるようにした。③ReasonTextにreason39/40のケースを追加(未登録のため従来「(未評価)」表示になっていたバグを修正)。いずれも取引ロジックには一切影響しない記録専用。 / 2026-07-09e EA_13f / ★「勘に頼らない敗因分析」残項目を一括追加。judgment: cooldown_left(buf44)/wma_slope_dist(buf45)/long_slope_smoothed・long_slope_dist(buf46/47)。context: wave_fast_raw・wave_slow_raw(buf48/49)、day_of_week・hour_jst(JST基準)、mins_to_next_event・mins_since_last_event(CalendarValueHistoryを直接照会、DokaKotsu_US_CalendarのJSONには依存しない独立取得)。GetNewsMinutes()新設。判定ロジックへの影響なし。 / 2026-07-09d EA_13e / ★entry_snapshotのjudgmentにspike_area_last(buf42)/spike_bars_since(buf43)を追加。spike_area(buf41)は確定した1本の足でしか値が立たない単発パルスのため、エントリーとほぼ噛み合わず相関が見えなかった。保持型の値と経過本数を追加し「何本前にどれくらいのスパイクがあったか」を分析できるようにした(判定ロジックへの影響なし)。 / 2026-07-09c EA_13d / ★entry_snapshotのjudgmentにspike_area(buf41)を追加。exit側resultには既にspike_areaがあり非対称だったため、エントリー直前のスパイク局面も記録できるようにした(判定ロジックへの影響なし・記録項目の追加のみ)。 / 2026-07-09b EA_13c / ★スパイク(33)・ウェーブクロス救済(34)を段階決済/トレーリング中でも常に最優先で即決済するよう修正。従来は段階決済モード(stagedMA)に入ると、その中の平均足反転/MA転換/MAグレー判定しか見ておらず、インジ側がスパイクを検知していても無視されていた(=「最優先」という設計意図とEAの実装がズレていた)。EXIT分岐の一番先頭でrc==33/34を早期リターンする形にして解消。300以上の面積はほとんど出現しない前提のため、各モードとの共存ロジックは作らず単純な最優先分岐にしている。 / 2026-07-09 EA_13b / ★スパイク決済(indicator_13が2026-07-08導入)のラベル漏れを修正: 通常モードEXIT分岐がrc==33(スパイク面積)/34(ウェーブクロス救済)を認識せず「決済(✖)」+g_lastExitMethod=30に誤ラベルしていたのを解消(実際の決済注文自体は変更なし、記録の正確性のみ修正)。result_snapshotに exit_method(30-34の実際の決済方式)と spike_area(indicator buf41、スイング確定時の面積実測値。閾値300未達の不発分も含む)を追加。 / 2026-07-07 EA_13 / ★entry/result JSONスナップショット追加(InpLogSnapshot,既定true)。参照先=DokaKotsu_indicator_13。エントリー成功時にjudgment(判定に使った値)+context(indicator buf28-40の未使用ロジック探索用データ)をentry_<magic>_<time>.jsonへ、決済成立時にresult(pips/勝敗/保有時間/MFE/MAE/RR実績)をresult_YYYYMMDD.jsonlへ1行追記。いずれも取引ロジックには一切影響しない記録専用(WriteEntrySnapshot/WriteResultSnapshot,保存先=InpReasonDir配下)。MAE追跡をUpdateMFEに追加(g_peakPipMAE)。 / 2026-07-06 EA_12 / ★米国休日バグ修正: 週末(土/日)付けの祝日エントリーをRefreshUSHolidayでスキップするよう変更(day_of_week==0/6を無視)。実例2026-07-06:独立記念日が金曜(観測日)と土曜(実日付)の重複登録で、土曜側がJST変換後に翌週月曜と誤一致し平日なのに米国休日停止が誤発動していた問題に対応。スキップ発生時は1回だけPrintで確認ログ出力 / 参照先=DokaKotsu_indicator_12 / 理由テキストにreason29(ADXグレー,indicator_11で導入済みだったが漏れていた分)・35(ZigZag弱波)・36(ADX継続未達)を追加 / CSVにadx(buf26)・zigzag(buf27)列を追加 / ★イベント予防線にISM追加(EV_ISM,ClassifyEvent/DK_StopReasonCode=11)。重要度フィルターをHIGHのみ→MODERATE+に緩和(表示側DokaKotsu_US_Calendarと統一。ISMはMODERATE分類のため従来HIGHのみでは検出不可だった)。時間窓はInpCpiNfpHoursBeforeを流用。判定ロジックはインジ側のまま変更なし / 2026-06-20 EA_9 / 参照先=DokaKotsu_indicator_9(Ver8.0) / MT5カレンダー(CPI/NFP/FOMC)+米国休日+年末年始 / 停止理由GV出力 / M15状態(buf13)読取+リーズンに15分足列 / 連敗ロット+自動復活 / ドテン廃止 / 2026-06-22:日次pip停止(InpMaxDayLossPip)+復活で基準リセット+チャート3行警告 / 2026-06-22:平均足色列(buf14)+決済理由細分化(30/31/32)+出来高(21) / 2026-06-23:損切り再決済(✖再送+広スリッページ)+緊急逆行ストップ(任意・既定OFF)+救済GV(Watchdog表示) / 2026-06-23:段階決済(含み益トリガーで平均足→MA切替)+15分グレー予備決済 / 2026-06-24:v8.3 インジ長期足(MTF3本パーフェクトオーダー門番,reason22)対応・理由テキスト追加 / 2026-06-24:v9.0 ファイル名/版を8→9統一(インジと同番号)・参照先=DokaKotsu_indicator_9・案Aで15分グレー予備決済OFF(InpExitOnM15Gray=false)・CSVに長期足状態列(buf15読取)追加 / 2026-06-28:EA_10 参照先=DokaKotsu_indicator_10・理由テキストに24/25/26を追加(24=フラッシュ回避,25=長期が後発,26=Wave未反転)。判定はインジ側のまま(EAは実行+リスク管理+決済再送)。#property versionを10.00に整合 / 2026-06-30:段階決済をbuf25(背景方向)自力判断に改良(反転=31/グレー連続InpStagedGrayBars=32。インジ理由32待ちの詰まりを解消)・ウォッチドッグ決済指示GV(DK_WD_EXITREQ)受信→即決済+再送(手法33)・自動売買/連携状態GV(DK_EA_TRADEOK/LINKOK)出力・決済手法をCSVリーズン末尾に保持表示(30平均足/31MA転換/32MAグレー/33WD,次エントリーまで) / 2026-07-01:再突入抑制(2発目キラー)=21時前(NY時間外,夏21/冬22)にMAグレー決済したら同方向を背景(確定足)再点灯InpRelightBars本までロック・NY時間は無効/解除・CSVリーズン末尾にATR(14)pipを全行記録(ボラ実証データ用) / 2026-07-02:トレーリングストップ=段階決済(含み益100pip超)中にピーク利益(MFE)のInpTrailGiveback(25%)を吐き出したら発動し平均足決済モードへ切替(平均足反転30で決済=決済(平均足反転/TS))。ea_note列に トレーリングストップ発動/決済OK(平均足反転/TS) を記録 / 2026-07-03:米国休日判定をチャート表示側(DokaKotsu_US_Calendar.mq5)と連携。RefreshUSHolidayが本日分(時刻問わず)の祝日検出+開始/終了時刻をGV出力(DK_EA_USHOL_ACTIVE/TODAY/START/END_<magic>)。表示側はDK_EA_HB心拍の鮮度でEA生存を確認しGV値をそのまま表示=WYSIWYG / 2026-07-03:InpUSHolStopHourJST既定値を18→14に変更(米国休日の新規停止開始をJST14時からに前倒し) / 2026-07-06:EA_11 インジ名称変更(DokaKotsu_indicator_10→DokaKotsu_indicator_11)に伴いEA側の参照名・ファイル名・バージョン表記を11に統一整合(判定ロジックはインジ側のまま変更なし)"
+#define EA_VERSION "vM1.2.0"
+#define EA_BUILD   "2026-09-03 ★ファイル名をDokaKotsu_EA_M1_1.mq5からDokaKotsu_EA_M1_2.mq5へ変更。参照先インジがDokaKotsu_indicator_1M_1→_1M_2へ改名されたことに伴う対応(田島さんご要望「インジ側とEA側のバージョン番号を常に一致させる」)。InpIndicatorName・#property version(1M2.00)・EA_VERSION(vM1.2.0)・起動時Print文を1M_2に統一。indicator_1M_2側で行われたM15フィルター・スパイク面積閾値・ADX関連の調整、決済用平均足の平滑化期間変更(前8/後10)等は、いずれもEAが読み取るバッファの意味・reasonコードの体系を変更するものではないため、EA側のロジック・ReasonText・reason CSV列構成への追加対応は不要。参照先名の変更のみ。 / 2026-08-27(6回目) ★1分足専用の新規分岐版(DokaKotsu_EA_M1_1)。DokaKotsu_EA_18.mq5(v18.04)から派生。参照先インジをDokaKotsu_indicator_1M_1へ変更。EA_VERSIONを\\\"vM1.1.0\\\"に変更(5分足版v18.0系とは別系統と分かるように)。ATR記録(iATR PERIOD_M5固定)は変更なし=indicator_1M_1側の平均足M5固定化と一貫性を保っている。田島さんご要望「5分から1分にする、平均足だけは5分のまま」を受けて、5分足版と1分足版の成績を見比べる検証用に新規作成。 / 2026-08-27(5回目) ★reason CSVの旧fast_spike_range/fast_spike_thresh列(高速版廃止分)を、新しいMinor/Majorスパイク方式の実測値・閾値(minor_spike_height/minor_spike_thresh/major_spike_height/major_spike_thresh、indicator buf64/69/68/70)に置き換え。田島さんご要望「エントリーリーズンでこの値がわかるように」を受けての対応。判定にはこれらの列自体は使わない・記録専用。 / 2026-08-27(3回目) ★田島さんご指摘により発覚: reason CSVの列一覧コメントが、WriteReasonRow()関数冒頭とファイル冒頭付近(旧ヘッダー部)の2箇所に存在しており、ファイル冒頭側は2026-07-21で更新が止まったまま(以後追加されたspike_area_last/wma_slope_dist/dbg_*/fast_spike_*等が反映されず)放置されていた。「一か所で管理する」方針に反していたため、ファイル冒頭側の列一覧は削除しWriteReasonRow()側への誘導コメントに置き換え、以後は列一覧の管理場所をWriteReasonRow()1箇所に統一。取引ロジックへの影響なし・コメント整理のみ。 / 2026-08-27(2回目) ★reason CSVにdbg_last_entry_dir/dbg_bars_since_entry/dbg_ha_runs_since_entry/fast_spike_range/fast_spike_thresh列(indicator buf65-69)を追加。田島さん報告(18:35のreason48が閾値未満に見えるのに発動/19:00にreason45・47がどちらも発動しなかった)の原因調査用。判定にはこれらの列自体は使わない・記録専用。WriteReasonRow()内の全列一覧コメントも合わせて更新。 / 2026-08-27 ★reason CSVにwma_slope_dist列(indicator buf45、ベースWMAの閾値距離)を追加。田島さん報告(23:45時点でチャート上は下降に見えたのにWMAがまだグレー扱いだった)を受けて、あと僅かで色が付く/まだ全然閾値に届いていない、を数値で確認できるようにした。判定にはこの列自体は使わない・記録専用。あわせて、WriteReasonRow()内にreason CSVの全列一覧コメント(唯一の管理場所)を新設。以後この関数(ヘッダー行・値書き込み行・一覧コメントの3箇所)だけを見ればreason CSVの構成が把握できるようにした(田島さんご要望「列を追加しても後で何だったか分からなくならないよう、これだけで管理したい」への対応)。 / 2026-08-26(2回目) ★田島さんご要望「今後はインジ側とEA側のバージョン番号を常に一致させる」を受けて、ファイル名をDokaKotsu_EA_17→_18へ変更(インジ側_18と揃える)。あわせて長年ズレたままだったEA_VERSION(\\\"v15.0\\\"のまま6バージョン分放置されていた)を\\\"v18.0\\\"に修正、さらに起動時Print文が6バージョン前のまま(\\\"DokaKotsu_EA_12 build:v12.0-0706 起動(indicator_12リンク更新)\\\")残っていた古いコードも発見し\\\"DokaKotsu_EA_M1_1 build:v18.0 起動(indicator_18リンク更新)\\\"に修正。いずれも表示・ログ文字列のみの修正で取引ロジックへの影響なし。 / 2026-08-26 ★参照先インジをDokaKotsu_indicator_17→_18に変更(高速スパイク検出追加に伴う)。ReasonTextにcase 48=\\\"高速スパイク決済(1本判定)\\\"(2026-08-26にindicator_18側で新規追加。スイング確定を待つ既存reason33とは別ラベル)を追加。取引ロジックへの影響なし・参照先名/reason CSV表示ラベルの追加のみ。 / 2026-08-25 ★2点対応。①reason CSVにspike_area_last列(indicator buf42、保持型スパイク面積)を追加。従来は単発パルスのbuf41しか記録しておらず、田島さん報告「スパイクに気づくまでに15分かかった」原因になっていた。保持型なら次のスパイクまで全行に値が残るため、エントリーした瞬間の行を見ればスパイクの有無に一目で気づける(判定ロジックには使わない記録専用)。②ReasonTextの反映漏れ2件を追加修正: case 46=\\\"MACD免除エントリー(VolScoreグレー免除)\\\"(2026-08-22にindicator側で追加済みだった分の反映漏れ)、case 47=\\\"平均足内2回目エントリー禁止\\\"(2026-08-25にindicator側で新規追加。HAの色が変わらない間は1回しかエントリーしない安全網)を追加。取引ロジックへの影響なし・reason CSV表示ラベルの修正/列追加のみ。 / 2026-08-21(2回目) ★FOMCのみ、NY時間帯(21時〜24時JST)は新規禁止を一時解除するよう変更。新規input InpUseFomcNyWindow(既定true)・InpFomcOpenStartHourJST(既定21)・InpFomcOpenEndHourJST(既定24)を追加。開始時刻(InpEvStopHourJST=14時)・発表後の再停止(postEnd)ロジックは変更なし。FOMC以外(CPI/NFP/ISM/PPI/小売売上高)の挙動も一切変更なし。田島さんご要望「開始はそのまま/21時に復活/24時から再停止」を受けての対応。 / 2026-08-21 ★ReasonTextの反映漏れ2件を修正(indicator_17側で追加済みだったreason44/45がEA側に未登録のまま「(未評価)」表示になっていた)。case 44=\"MACD免除エントリー(タイミングずれ免除)\"(2026-08-16にindicator側で追加済みだった分の反映漏れ)、case 45=\"同方向連続エントリー禁止\"(2026-08-21にindicator側で新規追加。決済を経ずに直近と同方向へ短時間で連続エントリーする事故を防ぐ安全網)を追加。取引ロジックへの影響なし・reason CSV表示ラベルの修正のみ。田島さん報告(2026-08-21 10:35 BUY→10:45 BUYと決済を挟まず同方向へ連続エントリーした事例)を受けての対応。 / 2026-08-14(2回目) EA_17 / 16→17へバージョンアップ。参照先インジをDokaKotsu_indicator_16→_17に変更(スパイク面積閾値InpSpikeAreaThreshの既定値300→1000への変更に伴う)。この閾値はインジ側の単一入力値でreason33/34・reason39・マーケットステイトSP判定の3箇所に共通で使われている値のため、EA側はreason CSV/entry・result snapshotの値がそのまま1000基準に変わるだけで、EA自体のロジック・ファイル名以外のコード変更は無し。ファイル名/#property version/InpIndicatorNameを16→17へ統一。 / 2026-08-14 EA_16d / ★【重大】トレーリング発動(InpTrailGiveback)がSLを一切張らない不具合を修正。従来はg_peakPipMFE(ピーク含み益)からInpTrailGiveback(既定25%)吐き出した瞬間にg_trailArmedをtrueにし『平均足決済モードへ切替』するだけで、その後は平均足反転(reason30)が出るまで指標のシグナル待ちのみだった(価格ベースのSLは一切変更していなかった)。実例2026-08-14 09:30 SELLエントリー、09:45にMFE到達→トレーリング発動(ea_note記録)、しかし平均足反転がラグったため09:57まで含み益が65.2pip→0(建値)まで無制限に溶けた。対策: g_trailArmedがtrueになった瞬間、ArmTrailStopSL()を新設して発動時点のギブバック水準(peakPipMFE*(1-InpTrailGiveback))を価格SLとして即座にPositionModifyで建てるよう変更(ManageBreakevenの段階建値と同じ『利側にしか動かさない』パターンを踏襲、既存の段階建値SLより不利な位置には絶対に置き換えない)。これにより平均足反転を待つ間も価格ベースの下限が機能し、無制限のギブバックを防ぐ。判定ロジック(エントリー/インジ側)には一切影響なし、EA側のリスク管理(SL)のみの変更。田島さんの実トレード分析(09:30 SELL、決済09:57:28、pips=0.00)がきっかけ。 / 2026-07-25 EA_16c / ★【重大】entry_*.jsonl/result_*.jsonlが排他ロックされ、read_ea_trades.py(Python)はもちろん、エクスプローラーでのコピーやメモ帳での閲覧まで「使用中」で弾かれる不具合を修正。2026-07-15dでファイルを開いたまま保持する方式(GetDailyFileHandle)に変えて以降、FileOpenの引数にFILE_SHARE_READが無く、EA稼働中は他プロセスから一切読めない排他ロックのままだった(田島さんが該当jsonlを開こうとして「使用中」エラーになった報告で発覚)。GetDailyFileHandleのFileOpen引数にFILE_SHARE_READを追加し、書き込みはEAが保持したまま、他プロセスからの読み取り(read_ea_trades.pyの自動取込含む)を常に許可するよう修正。reason_YYYYMMDD.csv(WriteReasonRow)は元々毎回開閉する方式のため対象外(今回のロック不具合は発生していない)。 / 2026-07-21 EA_16b / ★参照先インジをDokaKotsu_indicator_15→_16に変更(ボラティリティ(VolScore)最終ゲート追加に伴う対応)。indicator_16がエントリー判定の最終チェックとしてVolScore(EMA(High-Low,5)とEMA(それ,20)の乖離率%)を追加し、InpVolScoreLowPct(既定0%)未満をグレー(ボラ不足)としてreason43でブロックするようになったため、EA側は①ReasonTextにcase 43を追加、②reason CSVの列構成末尾にvolscore(buf61の値をそのまま記録、判定には未使用の記録専用)を追加、の2点で追随した。判定ロジック自体はこれまで通りindicator側に一元化されたまま、EA側の発注ロジックへの変更はなし。 / 2026-07-20 EA_16 / ★DokaKotsu_Dashboard.mq5の■(停止)ボタン挙動を変更: 従来は新規禁止のみだったが、保有中に押された場合はその場で保有を強制決済してから停止するよう変更(田島さん要望)。保有していなければ従来通り新規禁止のみ。OnTick内でinWeekendFlatブロックの直後にdashPause&&pos!=0の分岐を追加し、CommandExit(5,\\\"ダッシュボード停止\\\")→ForceCloseMyPositions経由で他の強制決済(緊急逆行/イベント/週末)と全く同じ再送の仕組みに乗せた。g_lastExitMethod=55(ExitGroup範囲を50-54→50-55へ拡張)・g_exitKind=5を新設。判定(押す/押さないの意思決定)はダッシュボード側のボタン、実行(決済発注)はEA側という役割分担はこれまで通り変更なし。 / 2026-07-16 EA_15b / ★小売売上高(Retail Sales)をイベント予防線の対象に追加(EV_RETAIL新設)。他5指標(FOMC/CPI/NFP/ISM/PPI)と全く同じ扱い=RefreshCalEvent()は指標ごとに個別ロジックを持たず、分類さえされれば共通のInpEvStopHourJST(既定14時JST)起点・InpEvAfterHours時間後までのルールが自動的に適用されるため、ClassifyEvent()への追加だけで済んだ。DK_StopReasonCode=14、evName=\"小売売上高発表前停止\"。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにRETAILを追加。 / 2026-07-15h EA_15 / ★14→15へバージョンアップ。エントリーリーズンの修正2点に対応: ①WMA/M15タイミングずれの見送り確定(reason41,InpWmaM15MaxBars既定3=15分)。WMAが点灯してから既定3本以内にM15が追いつかなければ、以後M15が追いついてもそのWMA継続中は見送り確定(田島さん整理: 15分側が遅れる=波が速い=15分足で見ると終盤でリスクが高いため)。②BB×KC(regimeSqueeze)条件をロジックCに追加(reason42)。まだスクイーズ中(未ブレイク)ならWMA/M15/長期足が揃っていても見送り。参照先インジをDokaKotsu_indicator_15に変更、ReasonTextにreason41/42を追加。 / 2026-07-15g EA_14h / ★DokaKotsu_Dashboard.mq5の■(取引停止)/▶(復活)ボタンと連動。IsDashboardPaused()新設(GlobalVariable DK_DASH_TRADEPAUSE_<magic>を参照)。新規エントリーの統合判定・停止理由テキスト・DK_StopReasonCode(新規コード13)に組み込み。保有中ポジションはこのボタンでは決済されない(新規停止/再開のみ)。 / 2026-07-15f EA_14g / ★exit_groupに\"RISK\"(EA側リスク管理の強制決済)を追加し、5パターンに新しいexit_method番号(50=緊急逆行/51=イベント決済/52=週末強制/53=ウォッチドッグ)を割り当て。従来この5パターンはg_lastExitMethodを更新しないか(緊急逆行/イベント/週末)、reason33(スパイク面積決済)と同じ33を使っていた(ウォッチドッグ)ため、exit_groupが実態と異なる分類(直前の値の使い回し、またはSPIKEへの誤分類)になるバグがあった。ウォッチドッグは53に変更し衝突を解消。なおSL(ブローカー側の逆指値直接約定)はOnTradeTransaction未実装のため、現状result_snapshot自体が記録されない既知の課題として残る(54を予約済み・別途対応予定)。 / 2026-07-15e EA_14f / ★イベント新規禁止ロジックを全面刷新。従来の「指標ごとに発表hb時間前から」(CPI/NFP/ISM/PPI=3h、FOMC=10h)+リーク時間帯(発表30分前は新規OK)+発表1分前の建値移動(スパイク保険)という仕組みを廃止し、対象5指標(FOMC/CPI/NFP/ISM/PPI)すべて共通で「発表当日のJST14時(InpEvStopHourJST)から新規禁止、発表からInpEvAfterHours(既定1)時間後まで継続」というシンプルな方式に変更(米国休日停止と同じ考え方に統一)。発表が0時〜14時未満(FOMC等の深夜発表)の場合は前日14時が起点になるよう計算。InpFomcHoursBefore/InpCpiNfpHoursBefore/InpEvLeakMin/InpEvAfterMin/InpEvBeMinBefore・g_evNeedBE・ForceEventBreakeven()は削除。g_evStateは0/1のみ(リーク状態=2は廃止)。 / 2026-07-15d EA_14e / ★【重大】entry/result JSONLが書込のたびに既存内容ごと消えるバグを修正。田島さんの環境で実際に確認(05:40の記録がファイルに残ったまま11:40に新規書込したところ、05:40分が消えて11:40分だけの1行になった=ファイルサイズが1行分のまま)。原因はMQL5のFileOpen(FILE_READ|FILE_WRITE)+FileSeek(SEEK_END)方式が、ドキュメント上は追記できるはずが実際には信頼できないという既知の問題(同様の報告がMQL5フォーラムに多数あり)。対策として、ファイルを都度開閉せずEA稼働中は開いたまま保持し(GetDailyFileHandle新設,g_entryFileHandle/g_resultFileHandle)、日付が変わった時だけ閉じて次の日のファイルを新規に開く方式へ変更。OnDeinitでハンドルを確実にクローズ。 / 2026-07-15c EA_14d / ★entry_*.jsonl/result_*.jsonlの文字コードバグを修正。コードページ未指定のFileOpenだとシステムANSI(日本語WindowsはCP932)で書かれてしまい、Python側(json.load時UTF-8前提)でexit_why等の日本語項目が文字化けしていた(数値項目には影響なし)。mt5_calendar_today.json(2026-07-08)で使ったCP_UTF8明示の書き方に統一して解消。実データ(result_20260715.jsonl)の生バイトでCP932混入を確認済み。 / 2026-07-15b EA_14c / ★決済理由の3分類(exit_group)を追加。田島さんとの会話で判明した誤解を訂正: reason34(ウェーブクロス救済)は独立した4つ目の決済理由ではなく、reason33(スパイク面積直接決済)が次の足で間に合わなかった時の保険であり、あくまで『スパイク決済』という1つの仕組みの一部。決済は本質的に平均足(30)/WMA(31,32)/スパイク(33,34)の3種類しかないという整理に基づき、ExitGroup()新設・result_snapshotにexit_group(\"HA\"/\"WMA\"/\"SPIKE\")を追加した。既存のexit_method(30-34の生番号)はそのまま残し、分類だけを別フィールドとして追加(記録専用・決済ロジックへの影響なし)。 / 2026-07-15 EA_14b / ★PPI(生産者物価指数)をイベント予防線の対象に追加(EV_PPI新設)。CPIと同じ扱い(発表前hbはInpCpiNfpHoursBeforeのまま自動適用、DK_StopReasonCode=12、evName=\"PPI発表前停止\")。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにPPIを追加要(別途反映が必要)。 / 2026-07-13 パターンB対応: reason CSVにold_chain_reason列(indicator buf59)を追加、entry_snapshot(JSON)にもold_chain_reasonを追加。indicator_14がInpEntryModeBBKCOnly=trueの間、実際の発注はBB×KC(regime)+再エントリーロックのみで行われるが、この列で「もし従来の全フィルターのままだったらどう判定されたか(0=旧ロジックでも許可)」を確認できるようにした。EA自体の発注ロジック(buf7/8/9読取)は変更なし=判定は完全にindicator側に一元化されたまま。決済ロジックへの影響なし。 / 2026-07-12b EA_14 / ★13→14へバージョンアップ。reason CSV・entry_snapshot(JSON)にBB/KCレジーム(regime=indicator buf53,regime_ratio=indicator buf58・新規)を追加(判定ロジックへの影響なし・記録専用)。参照先インジをDokaKotsu_indicator_14に変更。 / 2026-07-10b EA_13h / ★indicator_13(2026-07-10e)の相場状態(buf57,SQ/TR/SP)対応。reason CSVのreason列先頭に状態接頭辞([SQ]/[TR]/[SP])を必ず付与するMarketStateText()を追加し、どのブロック理由がどの状態の中で起きたことかを一目で判別できるようにした(取引ロジックへの影響なし・記録専用)。 / 2026-07-10 EA_13g / ★indicator_13(2026-07-10)のレジーム判定(buf53,reason40)・スパイクADX禁止(buf50-52,reason39)・後段フィルター影判定(buf54-56)への対応。①entry_snapshotのjudgmentにspike_adx_ban_active/trigger_area/bars_since(buf50-52)・regime(buf53)・shadow_wave/adx/zz(buf54-56)を追加。②reason CSVにshadow_wave/adx/zz(buf54-56)の3列を追加=reason40等の上流ブロックでその足の実判定が隠れていても、Wave(26/27/28)・ADX継続性(29/36)・ZigZag(35)がその時点で通過/ブロックのどちらだったか常に記録できるようにした。③ReasonTextにreason39/40のケースを追加(未登録のため従来「(未評価)」表示になっていたバグを修正)。いずれも取引ロジックには一切影響しない記録専用。 / 2026-07-09e EA_13f / ★「勘に頼らない敗因分析」残項目を一括追加。judgment: cooldown_left(buf44)/wma_slope_dist(buf45)/long_slope_smoothed・long_slope_dist(buf46/47)。context: wave_fast_raw・wave_slow_raw(buf48/49)、day_of_week・hour_jst(JST基準)、mins_to_next_event・mins_since_last_event(CalendarValueHistoryを直接照会、DokaKotsu_US_CalendarのJSONには依存しない独立取得)。GetNewsMinutes()新設。判定ロジックへの影響なし。 / 2026-07-09d EA_13e / ★entry_snapshotのjudgmentにspike_area_last(buf42)/spike_bars_since(buf43)を追加。spike_area(buf41)は確定した1本の足でしか値が立たない単発パルスのため、エントリーとほぼ噛み合わず相関が見えなかった。保持型の値と経過本数を追加し「何本前にどれくらいのスパイクがあったか」を分析できるようにした(判定ロジックへの影響なし)。 / 2026-07-09c EA_13d / ★entry_snapshotのjudgmentにspike_area(buf41)を追加。exit側resultには既にspike_areaがあり非対称だったため、エントリー直前のスパイク局面も記録できるようにした(判定ロジックへの影響なし・記録項目の追加のみ)。 / 2026-07-09b EA_13c / ★スパイク(33)・ウェーブクロス救済(34)を段階決済/トレーリング中でも常に最優先で即決済するよう修正。従来は段階決済モード(stagedMA)に入ると、その中の平均足反転/MA転換/MAグレー判定しか見ておらず、インジ側がスパイクを検知していても無視されていた(=「最優先」という設計意図とEAの実装がズレていた)。EXIT分岐の一番先頭でrc==33/34を早期リターンする形にして解消。300以上の面積はほとんど出現しない前提のため、各モードとの共存ロジックは作らず単純な最優先分岐にしている。 / 2026-07-09 EA_13b / ★スパイク決済(indicator_13が2026-07-08導入)のラベル漏れを修正: 通常モードEXIT分岐がrc==33(スパイク面積)/34(ウェーブクロス救済)を認識せず「決済(✖)」+g_lastExitMethod=30に誤ラベルしていたのを解消(実際の決済注文自体は変更なし、記録の正確性のみ修正)。result_snapshotに exit_method(30-34の実際の決済方式)と spike_area(indicator buf41、スイング確定時の面積実測値。閾値300未達の不発分も含む)を追加。 / 2026-07-07 EA_13 / ★entry/result JSONスナップショット追加(InpLogSnapshot,既定true)。参照先=DokaKotsu_indicator_13。エントリー成功時にjudgment(判定に使った値)+context(indicator buf28-40の未使用ロジック探索用データ)をentry_<magic>_<time>.jsonへ、決済成立時にresult(pips/勝敗/保有時間/MFE/MAE/RR実績)をresult_YYYYMMDD.jsonlへ1行追記。いずれも取引ロジックには一切影響しない記録専用(WriteEntrySnapshot/WriteResultSnapshot,保存先=InpReasonDir配下)。MAE追跡をUpdateMFEに追加(g_peakPipMAE)。 / 2026-07-06 EA_12 / ★米国休日バグ修正: 週末(土/日)付けの祝日エントリーをRefreshUSHolidayでスキップするよう変更(day_of_week==0/6を無視)。実例2026-07-06:独立記念日が金曜(観測日)と土曜(実日付)の重複登録で、土曜側がJST変換後に翌週月曜と誤一致し平日なのに米国休日停止が誤発動していた問題に対応。スキップ発生時は1回だけPrintで確認ログ出力 / 参照先=DokaKotsu_indicator_12 / 理由テキストにreason29(ADXグレー,indicator_11で導入済みだったが漏れていた分)・35(ZigZag弱波)・36(ADX継続未達)を追加 / CSVにadx(buf26)・zigzag(buf27)列を追加 / ★イベント予防線にISM追加(EV_ISM,ClassifyEvent/DK_StopReasonCode=11)。重要度フィルターをHIGHのみ→MODERATE+に緩和(表示側DokaKotsu_US_Calendarと統一。ISMはMODERATE分類のため従来HIGHのみでは検出不可だった)。時間窓はInpCpiNfpHoursBeforeを流用。判定ロジックはインジ側のまま変更なし / 2026-06-20 EA_9 / 参照先=DokaKotsu_indicator_9(Ver8.0) / MT5カレンダー(CPI/NFP/FOMC)+米国休日+年末年始 / 停止理由GV出力 / M15状態(buf13)読取+リーズンに15分足列 / 連敗ロット+自動復活 / ドテン廃止 / 2026-06-22:日次pip停止(InpMaxDayLossPip)+復活で基準リセット+チャート3行警告 / 2026-06-22:平均足色列(buf14)+決済理由細分化(30/31/32)+出来高(21) / 2026-06-23:損切り再決済(✖再送+広スリッページ)+緊急逆行ストップ(任意・既定OFF)+救済GV(Watchdog表示) / 2026-06-23:段階決済(含み益トリガーで平均足→MA切替)+15分グレー予備決済 / 2026-06-24:v8.3 インジ長期足(MTF3本パーフェクトオーダー門番,reason22)対応・理由テキスト追加 / 2026-06-24:v9.0 ファイル名/版を8→9統一(インジと同番号)・参照先=DokaKotsu_indicator_9・案Aで15分グレー予備決済OFF(InpExitOnM15Gray=false)・CSVに長期足状態列(buf15読取)追加 / 2026-06-28:EA_10 参照先=DokaKotsu_indicator_10・理由テキストに24/25/26を追加(24=フラッシュ回避,25=長期が後発,26=Wave未反転)。判定はインジ側のまま(EAは実行+リスク管理+決済再送)。#property versionを10.00に整合 / 2026-06-30:段階決済をbuf25(背景方向)自力判断に改良(反転=31/グレー連続InpStagedGrayBars=32。インジ理由32待ちの詰まりを解消)・ウォッチドッグ決済指示GV(DK_WD_EXITREQ)受信→即決済+再送(手法33)・自動売買/連携状態GV(DK_EA_TRADEOK/LINKOK)出力・決済手法をCSVリーズン末尾に保持表示(30平均足/31MA転換/32MAグレー/33WD,次エントリーまで) / 2026-07-01:再突入抑制(2発目キラー)=21時前(NY時間外,夏21/冬22)にMAグレー決済したら同方向を背景(確定足)再点灯InpRelightBars本までロック・NY時間は無効/解除・CSVリーズン末尾にATR(14)pipを全行記録(ボラ実証データ用) / 2026-07-02:トレーリングストップ=段階決済(含み益100pip超)中にピーク利益(MFE)のInpTrailGiveback(25%)を吐き出したら発動し平均足決済モードへ切替(平均足反転30で決済=決済(平均足反転/TS))。ea_note列に トレーリングストップ発動/決済OK(平均足反転/TS) を記録 / 2026-07-03:米国休日判定をチャート表示側(DokaKotsu_US_Calendar.mq5)と連携。RefreshUSHolidayが本日分(時刻問わず)の祝日検出+開始/終了時刻をGV出力(DK_EA_USHOL_ACTIVE/TODAY/START/END_<magic>)。表示側はDK_EA_HB心拍の鮮度でEA生存を確認しGV値をそのまま表示=WYSIWYG / 2026-07-03:InpUSHolStopHourJST既定値を18→14に変更(米国休日の新規停止開始をJST14時からに前倒し) / 2026-07-06:EA_11 インジ名称変更(DokaKotsu_indicator_10→DokaKotsu_indicator_11)に伴いEA側の参照名・ファイル名・バージョン表記を11に統一整合(判定ロジックはインジ側のまま変更なし)"
 #define RESUME_BTN  "DK_ResumeBtn"   // ★連敗手動復活ボタンのオブジェクト名
 #define RESUME_TXT  "DK_ResumeTxt"   // ★状態テキスト(警告/停止中)のオブジェクト名
 #define WARN_TXT2   "DK_WarnTxt2"    // ★2026-06-22 3行警告の2行目(連敗)
@@ -302,10 +306,10 @@ input bool   InpUseStagedExit  = true;    // ★利益段階で決済を切替(�
 input double InpStagedTrigPips  = 100.0;  // ★この含み益(pip)に到達したらMA決済へ切替(トリガー/ラッチ)
 input double InpTrailGiveback   = 0.25;   // ★トレーリング: ピーク利益(MFE)のこの割合を吐き出したら発動→平均足決済モードへ(0.25=25%)
 input bool   InpExitOnM15Gray   = false;  // ★案A(2026-06-24): 15分グレー予備決済OFF。ボラで本決済より先に発火しトレンドを早死にさせるため。true=予備ON
-input int    InpStagedGrayBars  = 2;      // ★段階決済: 含み益トリガー到達後、背景(buf25)グレーがこの本数連続で決済(MAグレー)
+input int    InpStagedGrayBars  = 10;      // ★1分足版:5倍(2→10)。段階決済: 含み益トリガー到達後、背景(buf25)グレーがこの本数連続で決済(MAグレー)
 //--- ★再突入抑制(2発目キラー)。21時前(NY時間外)のみ有効。MAグレー決済後、同方向は背景が再点灯するまで新規禁止。
 input bool   InpReentryFilter    = true;   // ★再突入抑制ON。MAグレー(32)決済→同方向を背景再点灯までロック
-input int    InpRelightBars      = 2;      // ★解除条件: 背景(確定足)の再点灯がこの本数連続でロック解除
+input int    InpRelightBars      = 10;      // ★1分足版:5倍(2→10)。解除条件: 背景(確定足)の再点灯がこの本数連続でロック解除
 input int    InpNyStartSummer    = 21;     // ★NY開始(夏JST時)。この時刻〜翌5時は再突入抑制を無効(燃料あり)
 input int    InpNyStartWinter    = 22;     // ★NY開始(冬JST時)
 
@@ -340,6 +344,9 @@ input bool   InpUseCalEvent    = true; // ★MT5カレンダーでCPI/NFP/FOMC/I
 //   リーク時間帯(発表直前だけ新規OKにする仕組み)と、発表1分前の建値移動(スパイク保険)は廃止。
 input int    InpEvStopHourJST  = 14;   // イベント指標: JSTこの時刻(発表当日、深夜発表なら前日)から新規禁止
 input int    InpEvAfterHours   = 1;    // 発表からこの時間後まで新規禁止を継続
+input bool   InpUseFomcNyWindow    = true;   // ★2026-08-21追加: FOMCのみ、NY時間帯(InpFomcOpenStartHourJST〜InpFomcOpenEndHourJST)は新規禁止を一時解除する
+input int    InpFomcOpenStartHourJST = 21;   // ★2026-08-21追加: FOMC限定の再開時刻(JST)。開始(InpEvStopHourJST=14時)はそのまま、この時刻から新規再開
+input int    InpFomcOpenEndHourJST   = 24;   // ★2026-08-21追加: FOMC限定の再停止時刻(JST、24=日跨ぎ0時。この時刻から新規禁止を再開)。田島さんご要望「21時に復活、24時から再停止」
 
 //--- ★米国休日(MT5カレンダー)。JSTこの時刻〜翌オセアニア開放(InpResumeHourJST)まで新規停止。
 input bool   InpUseUSHoliday      = true; // ★米国休日停止を使うか(カレンダーの祝日を自動判定)
@@ -380,7 +387,7 @@ input int    InpFriBanJstHour = 2;     // ★新規停止の開始時刻(JST・�
 input int    InpFriBanJstMin  = 0;     // ★新規停止の開始時刻(JST・分)
 
 //--- インジ名(MQL5\Indicators\ 直下に置く場合はこの名前)
-input string InpIndicatorName = "DokaKotsu_indicator_17"; // 読み込むインジ名 ★2026-08-14: 16→17(スパイク面積閾値300→1000に伴う参照先更新)
+input string InpIndicatorName = "DokaKotsu_indicator_1M_2"; // 読み込むインジ名 ★2026-09-03: indicator_1M_1→_1M_2への改名に伴い変更(EA側もインジと番号を一致させる方針)
 input bool   InpLogSnapshot   = true;                     // ★entry/result JSONスナップショットを出力するか(取引には影響なし)
 
 //--- 理由ログ(診断用・取引に影響なし)
@@ -448,7 +455,7 @@ int OnInit()
 
    // ★ビルド標識: 動いているのが新版か一目で分かるように(起動ログ+チャート左下ラベル)
    //   Comment()は左上固定でWatchdogと重なるため、位置指定できるOBJ_LABELを使う。
-   Print("==== DokaKotsu_EA_12  build:v12.0-0706  起動(indicator_12リンク更新) ====");
+   Print("==== DokaKotsu_EA_M1_2  build:vM1.2.0  起動(indicator_1M_2リンク更新) ====");
    Comment("");   // 旧Comment(左上)が残っていれば消す
    if(ObjectFind(0, BUILD_LBL) < 0) ObjectCreate(0, BUILD_LBL, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, BUILD_LBL, OBJPROP_CORNER,     CORNER_LEFT_LOWER);  // 左下基準
@@ -497,6 +504,15 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   // ★2026-09-07追加: 【重大】OnInit失敗(インジ読込失敗など)時、それ以前のセッションで
+   //   書かれた古いDK_EA_HB_<magic>がGV上に残り続け、Watchdog/monitoringパネルが
+   //   「EA稼働中」と誤表示する不具合を確認(実機で3回連続initializing failed→
+   //   90秒のタイムアウト猶予中は稼働中に見えてしまっていた)。OnDeinitは初期化失敗時も
+   //   必ず呼ばれる(reason=REASON_INITFAILED)ため、ここでHBを即座に削除することで、
+   //   このEAが「今、消えた」ことを即座に自己申告する。理由を問わず(正常終了/失敗/
+   //   再起動いずれも)削除してよい。次に正常にOnInit()が通れば直後にHBが再セットされる。
+   if(InpHeartbeat)
+      GlobalVariableDel(StringFormat("DK_EA_HB_%d", InpMagic));
    if(ObjectFind(0, RESUME_BTN) >= 0) ObjectDelete(0, RESUME_BTN);   // ★復活ボタン撤去
    if(ObjectFind(0, RESUME_TXT) >= 0) ObjectDelete(0, RESUME_TXT);   // ★状態テキスト撤去
    if(ObjectFind(0, WARN_TXT2) >= 0) ObjectDelete(0, WARN_TXT2);   // ★3行警告2行目撤去
@@ -1107,7 +1123,21 @@ void RefreshCalEvent()
 
       datetime postEnd = evt + (datetime)InpEvAfterHours*3600;   // 発表からこの時間後まで新規禁止継続
 
-      if(now >= deadStart && now <= postEnd) { banFound=true; banKind=k; }
+      bool thisBan = (now >= deadStart && now <= postEnd);
+      // ★2026-08-21追加: FOMCのみ、NY時間帯(21時〜24時JST)は新規禁止を一時解除する。
+      //   開始時刻(InpEvStopHourJST=14時)・発表後の再停止(postEnd)ロジックはそのまま。
+      //   停止期間の途中、JST21時〜24時だけ穴を開け、24時(=日跨ぎ0時)から自動的に
+      //   再度停止(postEndまで継続)する。田島さんご要望「開始はそのまま/21時に復活/24時から再停止」。
+      if(thisBan && k==EV_FOMC && InpUseFomcNyWindow)
+      {
+         datetime nowJst = now + off*3600;
+         MqlDateTime nowJstSt; TimeToStruct(nowJst, nowJstSt);
+         int hNow = nowJstSt.hour;
+         bool inFomcOpenWindow = (hNow >= InpFomcOpenStartHourJST && hNow < InpFomcOpenEndHourJST);
+         if(inFomcOpenWindow) thisBan = false;
+      }
+
+      if(thisBan) { banFound=true; banKind=k; }
    }
    if(banFound) { g_evState=1; g_evKind=banKind; }
 }
@@ -2169,6 +2199,12 @@ string ReasonText(int code)
       case 41: return "WMA/M15タイミングずれ(見送り確定)";         // ★2026-07-15追加(indicator_15,ロジックC①)
       case 42: return "BB×KC未ブレイク(スクイーズ中,ロジックC)";    // ★2026-07-15追加(indicator_15,ロジックC②)
       case 43: return "ボラティリティ不足(VolScoreグレー)";         // ★2026-07-21追加(indicator_16,最終ゲート)
+      case 44: return "MACD免除エントリー(タイミングずれ免除)";      // ★2026-08-21追加(indicator_17,2026-08-16導入分の反映漏れを修正)
+      case 45: return "同方向連続エントリー禁止";                   // ★2026-08-21追加(indicator_17,2026-08-21導入)
+      case 46: return "MACD免除エントリー(VolScoreグレー免除)";     // ★2026-08-25追加(indicator_17,2026-08-22導入分の反映漏れを修正)
+      case 47: return "平均足内2回目エントリー禁止";                // ★2026-08-25追加(indicator_17,2026-08-25導入)
+      case 48: return "高速スパイク決済(1本判定)";                  // ★2026-08-26追加(indicator_18,2026-08-26導入)。★2026-08-27(4回目)注記: indicator側でMinor/Major方式に置き換え済みのため、今後この番号は新規発生しない(過去ログ参照用にラベルは残置)
+      case 49: return "MACD不一致(MACD最終ゲート,VolScore代替)";     // ★2026-09-08追加(indicator_1M_2,InpUseMacdFinalGate=true時の1分足限定・一時措置)。reason46は5分足系列で別意味のため使わず49を新規採番
       default: return "(未評価)";
    }
 }
@@ -2231,8 +2267,59 @@ void WriteReasonRow(datetime bt, int code, int pos, int cd, int tf, string eaNot
       return;
    }
    FileSeek(h, 0, SEEK_END);
+   // ★2026-08-27追加: reason CSVの全列一覧(唯一の管理場所)。ここに列を足す/変える時は、
+   //   直下のFileWriteヘッダー行・末尾のFileWrite本体行・この一覧コメントの3箇所を必ず同時に
+   //   更新すること(3箇所が食い違うと列名と値がズレるため)。番号は左からの列順。
+   //   1 time              エントリー判定バーの時刻(JST、WriteReasonRowと同じ変換方式)
+   //   2 dir               方向(1=BUY/-1=SELL/0=方向なし)
+   //   3 code               理由コード(reason)の数値そのもの。ReasonText()で日本語ラベルに変換
+   //   4 ha                 平均足の色(上昇/下降)
+   //   5 long               長期足の状態(上昇/下降/グレー)
+   //   6 m15                15分足の状態(上昇/下降/グレー)
+   //   7 adx                ADX状態(上昇/下降/グレー)
+   //   8 zigzag             ZigZag残存強度%(indicator buf27)
+   //   9 reason             相場状態接頭辞[SQ]/[TR]/[SP]付きの日本語理由文(reason)
+   //  10 ea_note            EA側の実際の状態(エントリーBUY/ノーポジ/保有中/決済OK等)
+   //  11 pos                その時点のポジション(1=買い/-1=売り/0=なし)
+   //  12 cooldown           決済後クールダウン残り本数(indicator buf44)
+   //  13 time_filter        (未使用列。旧ロジックの名残)
+   //  14 order_err          直近の発注エラーコード(0=エラーなし)
+   //  15 shadow_wave        Wave判定の影の値(indicator buf54。上流ブロック中でも常時計算・記録専用)
+   //  16 shadow_adx         ADX継続性の影の値(indicator buf55。記録専用)
+   //  17 shadow_zz          ZigZag弱波の影の値(indicator buf56。記録専用)
+   //  18 regime             BB×KCレジーム(0=トレンド/1=スクイーズ,indicator buf53)
+   //  19 regime_ratio       レジーム圧縮比率(indicator buf58,記録専用)
+   //  20 old_chain_reason   旧ロジックA基準でどう判定されたか(indicator buf59,記録専用)
+   //  21 wave_color         チャート表示の波の色(indicator buf22,記録専用)
+   //  22 volscore           VolScore%(indicator buf61。reason43の判定に使う値そのもの)
+   //  23 spike_area_last    保持型スパイク面積(indicator buf42。2026-08-25追加,記録専用)
+   //  24 wma_slope_dist     ★2026-08-27追加: ベースWMAの閾値距離(indicator buf45)。
+   //                        |傾き|-閾値(thOn)。正=色が付く側/負=グレー側,0に近いほど
+   //                        「あと僅かでグレーを抜けそうだった」ことが分かる。記録専用。
+   //  25 dbg_last_entry_dir ★2026-08-27(2回目)追加・調査用(indicator buf65): reason45/47判定が
+   //                        参照するlastEntryDir(直近エントリー方向)の実値。1=BUY/-1=SELL/
+   //                        0=まだエントリーなし。田島さん報告(2026-08-27 19:00のSELLでreason45/47
+   //                        が発動すべきなのに発動しなかった)の原因調査用。記録専用。
+   //  26 dbg_bars_since_entry ★同上(indicator buf66): 直近エントリーから何本(5分足)経過したか。
+   //                        reason45はこれがInpMinBarsSameDirEntry(既定6)未満ならブロックするはず。
+   //                        未エントリーは-1。記録専用。
+   //  27 dbg_ha_runs_since_entry ★同上(indicator buf67): 直近エントリー時点からhaRunId(平均足の
+   //                        色が変わった回数)がいくつ進んだか。0=まだ同じ平均足のまま
+   //                        (reason47が本来ブロックすべき状態)。未エントリーは-1。記録専用。
+   //  28 minor_spike_height ★2026-08-27(5回目)追加(indicator buf64): マイナースパイク判定の
+   //                        実測高さ(直近InpMinorMinExtremeWidth本の高値-安値)。エントリー禁止
+   //                        (reason39)のトリガー実測値。旧300相当。記録専用。
+   //  29 minor_spike_thresh ★同上(indicator buf69): マイナースパイク判定の閾値
+   //                        [ATR×InpMinorMinExtremeHeightATRs]。minor_spike_height >= この値なら
+   //                        reason39トリガー発動。ATR連動のため固定値ではなく状況により変化する。記録専用。
+   //  30 major_spike_height ★同上(indicator buf68): メジャースパイク判定の実測高さ(直近
+   //                        InpMajorMinExtremeWidth本の高値-安値)。保有中の防御決済(reason33)の
+   //                        トリガー実測値。旧1000相当。記録専用。
+   //  31 major_spike_thresh ★同上(indicator buf70): メジャースパイク判定の閾値
+   //                        [minor_spike_thresh×InpMajorToMinorHeightRatio]。
+   //                        major_spike_height >= この値ならreason33トリガー発動。記録専用。
    if(isNew)
-      FileWrite(h, "time","dir","code","ha","long","m15","adx","zigzag","reason","ea_note","pos","cooldown","time_filter","order_err","shadow_wave","shadow_adx","shadow_zz","regime","regime_ratio","old_chain_reason","wave_color","volscore");
+      FileWrite(h, "time","dir","code","ha","long","m15","adx","zigzag","reason","ea_note","pos","cooldown","time_filter","order_err","shadow_wave","shadow_adx","shadow_zz","regime","regime_ratio","old_chain_reason","wave_color","volscore","spike_area_last","wma_slope_dist","dbg_last_entry_dir","dbg_bars_since_entry","dbg_ha_runs_since_entry","minor_spike_height","minor_spike_thresh","major_spike_height","major_spike_thresh");
    // ★2026-07-10e追加: reason列の先頭に相場状態([SQ]/[TR]/[SP],buf57)を必ず付与。
    //   どのブロック理由(M15不一致でもZigZagでも何でも)が、どの状態の中で起きたことかを一目で判別できるようにする。
    string reasonTxt = MarketStateText((int)ReadBufRaw(57,0)) + " " +
@@ -2261,7 +2348,31 @@ void WriteReasonRow(datetime bt, int code, int pos, int cd, int tf, string eaNot
       WaveColorText((int)ReadBufRaw(22,0)),
       // ★2026-07-21追加: ボラティリティ(VolScore,%。buf61)。indicator側の最終ゲート(reason43)と
       //   同じ値をそのまま記録。判定にはこの列自体は使わない(インジ側で既に判定済み)・記録専用。
-      StringFormat("%.1f", ReadBufRaw(61,0)));
+      StringFormat("%.1f", ReadBufRaw(61,0)),
+      // ★2026-08-25追加: スパイク面積(保持型,buf42=BufSpikeAreaLast)を毎行記録。従来はスパイクが
+      //   発生した「その1本」の足でしか値が見えず(buf41は単発パルス)、田島さん報告のように
+      //   「スパイクに気づくまでに15分かかった」原因になっていた。保持型なら次のスパイクが出るまで
+      //   直近のスパイク面積が全行に表示され続けるため、エントリーした瞬間の行を見ればスパイクの
+      //   有無・大きさに一目で気づける。判定にはこの列自体は使わない(既存のspikeBanActive/
+      //   spikeAdxBanActiveの判定ロジックは変更なし)・記録専用。
+      StringFormat("%.1f", ReadBufRaw(42,0)),
+      // ★2026-08-27追加: ベースWMAの閾値距離(buf45=BufWmaSlopeDist)。|傾き|-閾値(thOn)。
+      //   田島さん報告(23:45時点でチャート上は下降に見えたのにWMAがまだグレー扱いだった)を
+      //   受けて、あと僅かで色が付く/まだ全然閾値に届いていない、を数値で確認できるようにした。
+      //   正=色が付く側/負=グレー側。判定にはこの列自体は使わない・記録専用。
+      StringFormat("%.4f", ReadBufRaw(45,0)),
+      // ★2026-08-27(2回目)追加: reason45/47/48の誤発動/不発動調査用デバッグ列(indicator buf65-69)。
+      //   原因判明後も内部状態の観測窓として残す。判定にはこれらの列自体は使わない・記録専用。
+      StringFormat("%.0f", ReadBufRaw(65,0)),
+      StringFormat("%.0f", ReadBufRaw(66,0)),
+      StringFormat("%.0f", ReadBufRaw(67,0)),
+      // ★2026-08-27(5回目)追加: Minor/Majorスパイク判定の実測値・閾値(indicator buf64/69/68/70)。
+      //   田島さんご要望「エントリーリーズンでこの値がわかるように」を受けて、旧fast_spike_*列を
+      //   置き換える形で追加。判定にはこれらの列自体は使わない・記録専用。
+      StringFormat("%.2f", ReadBufRaw(64,0)),
+      StringFormat("%.2f", ReadBufRaw(69,0)),
+      StringFormat("%.2f", ReadBufRaw(68,0)),
+      StringFormat("%.2f", ReadBufRaw(70,0)));
    FileClose(h);
    // ★理由CSVを実際に書けた時刻をGVへ(watchdogの「reasonログ」健全性判定に使用)
    if(InpHeartbeat)

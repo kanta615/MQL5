@@ -1,7 +1,19 @@
 ﻿//+------------------------------------------------------------------+
 //|                         DokaKotsu_Watchdog.mq5                   |
-//|  バージョン : v1.2 (インジケーター版 / _Ind→_Watchdogへ改名)      |
-//|  更新日時   : 2026-06-20 (JST)                                   |
+//|  バージョン : v1.3 (自動売買OFF検知を追加)                       |
+//|  更新日時   : 2026-09-09 (JST)                                   |
+//|------------------------------------------------------------------|
+//|  ■ 変更履歴                                                     |
+//|   ○ 2026-09-09 EAハートビート/reasonログが生きていても、MT5端末   |
+//|      側のアルゴ取引ボタンOFF(TERMINAL_TRADE_ALLOWED=false)や口座 |
+//|      側のEA取引不許可(ACCOUNT_TRADE_EXPERT=false)で発注が          |
+//|      ブロックされている状態(retcode 10027等)を「EA正常稼働」と    |
+//|      誤表示していた問題を修正(田島さん報告)。Check()内で           |
+//|      TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)と                |
+//|      AccountInfoInteger(ACCOUNT_TRADE_EXPERT)をこのインジ自身が    |
+//|      直接読む(EA側GVの書き忘れ・実装漏れに依存しない一箇所管理)。  |
+//|      WD_TRADE_OFF状態を新設し、1行目見出しを🚨自動売買OFFに変更、  |
+//|      スマホ通知(isBad)対象にも追加。                              |
 //|------------------------------------------------------------------|
 //|  役割:                                                           |
 //|   ・DokaKotsu EA の生存(ハートビート)を GlobalVariable で監視     |
@@ -31,7 +43,7 @@
 //|       DK_EA_LOSSSTREAK_<magic> … 連敗数(連敗表示用)              |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.10"
+#property version   "1.11"
 #property strict
 #property indicator_chart_window
 #property indicator_plots   0
@@ -62,7 +74,7 @@ input bool   InpForceExit      = true;      // ★EXIT継続なのに保有残�
 input int    InpStuckGraceSec  = 20;        // ★その状態がこの秒数続いたら決済指示を発令(EAの自力決済を待つ猶予)
 
 //--- 状態
-enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3 };
+enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3, WD_TRADE_OFF=4 };  // ★2026-09-09追加: WD_TRADE_OFF(自動売買OFF)
 WD_STATE  g_prev      = WD_OK;
 datetime  g_lastAlert = 0;
 bool      g_started   = false;
@@ -213,9 +225,16 @@ void Check()
    bool reasonDown = (!eaDown) && marketOpen &&
                      ((!rsEx) || (rsAge < 0) || (rsAge > InpReasonStaleSec));
 
+   // --- ★2026-09-09追加: MT5端末側の自動売買許可(ハートビート/reasonログとは別問題)。
+   //     TERMINAL_TRADE_ALLOWED=ツールバーのアルゴ取引ボタン、ACCOUNT_TRADE_EXPERT=口座側の
+   //     EA取引許可。どちらもEAではなくこのインジ自身から直接読める値なので、EA側のGV書き忘れに
+   //     依存せずここ一箇所で判定する(retcode 10027="AutoTrading disabled by client terminal"対策)。
+   bool algoOk = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
+
    // --- 総合状態 ---
    WD_STATE st;
    if(eaDown)           st = WD_EA_DOWN;
+   else if(!algoOk)     st = WD_TRADE_OFF;   // ★2026-09-09追加: プロセスは生きていても発注不可
    else if(reasonDown)  st = WD_REASON_DOWN;
    else if(!marketOpen) st = WD_MARKET_CLOSED;
    else                 st = WD_OK;
@@ -250,6 +269,7 @@ void Check()
    color  c; string main; string reasonLine = "";
    if(eaDown)            { c=clrRed;    main = ts+"  🚨EA停止"+tail+" / EAを確認!"; }
    else if(stuck)        { c=clrRed;    main = ts+"  🚨EXIT継続なのに保有残存"+tail+(fire?" / 決済指示発令":" / 監視中(猶予)"); }
+   else if(!algoOk)      { c=clrRed;    main = ts+"  🚨自動売買OFF(発注不可)"+tail+" / アルゴ取引ボタン(Ctrl+E)を確認!"; }   // ★2026-09-09追加
    else if(!marketOpen)  { c=clrSilver; main = ts+"  ⏸市場休場"+tail; }
    else if(reasonDown)   { c=clrOrange; main = ts+"  ⚠理由ログ停止"+tail; }
    else if(rcode>0)      { c=clrOrange; main = ts+"  ⚠EA稼働(停止理由あり)"+tail;
@@ -269,7 +289,7 @@ void Check()
    ChartRedraw(0);
 
    // --- 通知(状態変化 or 一定間隔で再送) ---
-   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN);
+   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN || st==WD_TRADE_OFF);   // ★2026-09-09追加: WD_TRADE_OFFも通知対象
    if(isBad)
    {
       bool changed = g_started && (st != g_prev);
@@ -278,8 +298,9 @@ void Check()
                       (now - g_lastAlert) >= (datetime)InpResendMin*60);
       if(changed || firstBad || resend)
       {
-         string head = (st==WD_EA_DOWN) ? "【!】DokaKotsu EA停止"
-                                        : "【!】DokaKotsu reasonログ停止";
+         string head = (st==WD_EA_DOWN)      ? "【!】DokaKotsu EA停止"
+                     : (st==WD_TRADE_OFF)    ? "【!】DokaKotsu 自動売買OFF(発注不可)"   // ★2026-09-09追加
+                                              : "【!】DokaKotsu reasonログ停止";
          string msg  = StringFormat("%s (EA最終%s前 / reason%s前) %s JST",
                           head, AgeTxt(eaAge), AgeTxt(rsAge),
                           TimeToString(TimeLocal(), TIME_MINUTES));
@@ -291,7 +312,7 @@ void Check()
    {
       // 復旧通知(直前が異常 → 正常/クローズ)
       if(InpNotifyRecover && g_started &&
-         (g_prev==WD_EA_DOWN || g_prev==WD_REASON_DOWN))
+         (g_prev==WD_EA_DOWN || g_prev==WD_REASON_DOWN || g_prev==WD_TRADE_OFF))   // ★2026-09-09追加: WD_TRADE_OFFからの復旧も通知
       {
          Notify(StringFormat("【OK】DokaKotsu 復旧: %s  %s JST",
                 main, TimeToString(TimeLocal(), TIME_MINUTES)));
