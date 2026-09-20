@@ -5,18 +5,6 @@
 //|   位置が安定し、画面から消えない。                               |
 //|   背景色・文字色・文字サイズを入力パラメータで選択できる。        |
 //|                                                                  |
-//|  ■ 更新日: 2026-09-17                                            |
-//|    変更履歴:                                                     |
-//|      - メインチャート左上に「カーソル位置のJST時刻」を常時表示    |
-//|        する機能を追加(InpShowCursorJST、既定true)。田島さんより  |
-//|        「データウィンドウのTime(サーバー時刻)を見せるたびに      |
-//|        JSTと言われるので、最初からJSTを表示したい」とのご要望。  |
-//|        データウィンドウのTimeはMT5仕様上サーバー時刻固定で       |
-//|        変更不可のため、カーソル(十字線)が指している位置の時刻を  |
-//|        ChartXYToTimePrice()で取得し、既存の夏冬時間判定          |
-//|        (IsSummerTimeAt)でJSTへ変換してメインウィンドウ左上に     |
-//|        固定表示するラベルを新設。スクリーンショットに毎回写る    |
-//|        ので、以後「それはJSTですか」の確認不要になる想定。       |
 //|  ■ 修正日: 2026-07-13  修正内容(診断用ビルド)                    |
 //|    表示が消える不具合の原因を特定するため、Print診断ログを追加。 |
 //|    ①OnInit時点のウィンドウ番号、②毎回の再描画で実際に何本の    |
@@ -27,7 +15,7 @@
 //|    見た目のロジック(何を描画するか)自体は変更していない。       |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.40"
+#property version   "1.30"
 #property indicator_separate_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -42,62 +30,21 @@ input color  InpBgColor    = 0x1a1a1a;   // 背景色(clrNONEで背景を描画�
 input double InpYPos        = 0.5;      // サブ窓内の縦位置(0=下 1=上)
 input bool   InpAutoDST     = true;     // 夏/冬を自動判定(米国DST)
 input bool   InpManualSummer= true;     // 手動時の夏時間(InpAutoDST=false時)
-input bool   InpShowCursorJST = true;   // ★2026-09-17追加: メインチャート左上にカーソル位置のJST時刻を常時表示
-input color  InpCursorJSTColor = clrYellow; // カーソルJST表示の文字色
-input int    InpCursorJSTFontSize = 10;     // カーソルJST表示の文字サイズ
 
 string   PFX       = "DKjstax_";
-string   CPFX      = "DKjstcursor_";     // ★カーソルJST表示ラベル専用プレフィックス(PFXの一括削除対象から外すため別出し)
-string   CURSOR_NAME;
 string   BG_NAME;  // 背景矩形オブジェクト名(PFXを含めて一括削除対象にする)
 datetime g_lastBar = 0;    // 最後に描き直した足の時刻(毎ティック処理を防ぐ)
 int      g_lastOff = -1;   // 最後に使ったJSTオフセット(夏冬の切替検知)
 
 //+------------------------------------------------------------------+
-//| ★2026-09-17追加: メインチャート左上に固定表示するカーソルJSTラベル |
-//|   を作成/更新する。時間・価格軸ではなく画面座標(コーナー基準)で   |
-//|   固定するので、スクロール/ズームしても常に同じ位置に見える。     |
-//+------------------------------------------------------------------+
-void CreateOrUpdateCursorLabel(string txt)
-{
-   if(ObjectFind(0, CURSOR_NAME) < 0)
-   {
-      if(!ObjectCreate(0, CURSOR_NAME, OBJ_LABEL, 0, 0, 0))
-      {
-         Print("[JSTsub] カーソルJSTラベルObjectCreate失敗 err=", GetLastError());
-         return;
-      }
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_XDISTANCE, 10);
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_YDISTANCE, 18);
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_HIDDEN, true);
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_BACK, false);
-      ObjectSetInteger(0, CURSOR_NAME, OBJPROP_ZORDER, 100);
-   }
-   ObjectSetString (0, CURSOR_NAME, OBJPROP_TEXT, txt);
-   ObjectSetInteger(0, CURSOR_NAME, OBJPROP_COLOR, InpCursorJSTColor);
-   ObjectSetInteger(0, CURSOR_NAME, OBJPROP_FONTSIZE, InpCursorJSTFontSize);
-}
-
-//+------------------------------------------------------------------+
 int OnInit()
 {
    BG_NAME = PFX + "background";
-   CURSOR_NAME = CPFX + "label";
    IndicatorSetString(INDICATOR_SHORTNAME, "JST目盛り");
    IndicatorSetInteger(INDICATOR_DIGITS, 0);
    // ★診断用(2026-07-13追加): OnInit時点でのウィンドウ番号を記録。
    //   これが-1や意図しない番号(0=メインチャート等)になっていないか確認するため。
    Print("[JSTsub] OnInit win=", ChartWindowFind(), " chart_windows=", (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL));
-
-   // ★2026-09-17追加: カーソル位置のJST時刻表示のため、マウス移動イベントを有効化。
-   if(InpShowCursorJST)
-   {
-      ChartSetInteger(0, CHART_EVENT_MOUSE_MOVE, true);
-      CreateOrUpdateCursorLabel("JST(カーソル位置): ―");   // 初期表示(マウスが動くまでのプレースホルダ)
-   }
    return(INIT_SUCCEEDED);
 }
 
@@ -105,7 +52,6 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    ObjectsDeleteAll(0, PFX);
-   ObjectsDeleteAll(0, CPFX);   // ★2026-09-17追加: カーソルJST表示ラベルも削除
    ChartRedraw(0);
 }
 
@@ -177,28 +123,6 @@ void OnChartEvent(const int id,
    {
       int win = ChartWindowFind();
       if(win >= 0) DrawBackground(win);
-   }
-
-   // ★2026-09-17追加: マウス移動のたびに、カーソル(十字線)が指している位置の
-   //   時刻をメインウィンドウ(0)基準で取得し、JSTに変換して左上ラベルへ反映。
-   //   データウィンドウのTimeと同じX座標を参照しているので、常に一致する。
-   if(InpShowCursorJST && id == CHARTEVENT_MOUSE_MOVE)
-   {
-      int x = (int)lparam;
-      int y = (int)dparam;
-      datetime tAtCursor;
-      double   pAtCursor;
-      int      subWin;
-      if(ChartXYToTimePrice(0, x, y, subWin, tAtCursor, pAtCursor))
-      {
-         int offCur = IsSummerTimeAt(tAtCursor) ? 6 : 7;
-         datetime jstCur = tAtCursor + offCur*3600;
-         MqlDateTime jc; TimeToStruct(jstCur, jc);
-         string txt = StringFormat("JST(カーソル位置): %04d.%02d.%02d %02d:%02d",
-                                    jc.year, jc.mon, jc.day, jc.hour, jc.min);
-         CreateOrUpdateCursorLabel(txt);
-         ChartRedraw(0);
-      }
    }
 }
 
