@@ -7,6 +7,16 @@
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
 //|                                                                    |
+//|  ■ 修正日: 2026-09-22  修正内容                                  |
+//|    ①Calendarインジの改名(DokaKotsu_US_Calendar → DokaKotsu_Calendar)|
+//|      に追従。右上バッジの実在チェック(旧IsUsCalendarPresent →      |
+//|      IsCalendarPresent)の名前接頭辞を"DokaKotsu_Calendar"へ変更。   |
+//|      旧接頭辞のままだとCalendarが稼働中でも赤「未連携」表示になる。 |
+//|    ②バッジ文言を「● Calendar_連携中」「● Calendar_未連携」に変更。  |
+//|    ③本文中コメントの旧名称をDokaKotsu_Calendarへ更新(処理は不変)。 |
+//|      ※本ファイルは表示専用でロジックを持たない絶対ルールは変更なし。|
+//|      ※以下の過去の修正履歴内の旧名称は当時の記録としてそのまま残す。|
+//|                                                                  |
 //|  ■ 修正日: 2026-09-09  修正内容                                  |
 //|    「EA稼働中/取引停止中/EA停止中」の3状態が、EA心拍(IsEaAlive)と  |
 //|    手動一時停止ボタン(DK_DASH_TRADEPAUSE)しか見ておらず、MT5端末   |
@@ -636,9 +646,9 @@ int FindDokaKotsuHandle()
   }
 
 //+------------------------------------------------------------------+
-//| ★2026-07-15追加: DokaKotsu_US_Calendarがチャート上に存在するか判定 |
+//| ★2026-07-15追加: DokaKotsu_Calendarがチャート上に存在するか判定 |
 //+------------------------------------------------------------------+
-bool IsUsCalendarPresent()
+bool IsCalendarPresent()
   {
    int winTotal = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
    for(int w = 0; w < winTotal; w++)
@@ -647,7 +657,7 @@ bool IsUsCalendarPresent()
       for(int i = 0; i < total; i++)
         {
          string name = ChartIndicatorName(0, w, i);
-         if(StringFind(name, "DokaKotsu_US_Calendar") == 0) return true;
+         if(StringFind(name, "DokaKotsu_Calendar") == 0) return true;
         }
      }
    return false;
@@ -746,12 +756,12 @@ int ReadLongDirection()
    return (int)MathRound(buf[0]);
   }
 
-//--- ★2026-07-07追加: DokaKotsu_US_Calendar.mq5が書き出す当日の経済指標ファイル(共通)
+//--- ★2026-07-07追加: DokaKotsu_Calendar.mq5が書き出す当日の経済指標ファイル(共通)
 #define CAL_FILE "DokaKotsu_Calendar_Today.txt"
 #define CAL_MAXROWS 6   // パネルに表示する最大件数(多すぎて縦に伸びすぎないよう上限)
 
 //+------------------------------------------------------------------+
-//| サーバー時間→JSTのオフセット秒(DokaKotsu_US_Calendar.mq5と同じ考え方) |
+//| サーバー時間→JSTのオフセット秒(DokaKotsu_Calendar.mq5と同じ考え方) |
 //+------------------------------------------------------------------+
 int ServerToJstShiftDKD()
   {
@@ -761,7 +771,7 @@ int ServerToJstShiftDKD()
   }
 
 //+------------------------------------------------------------------+
-//| ★2026-07-07追加: DokaKotsu_US_Calendar.mq5が書き出したテキストを読み、  |
+//| ★2026-07-07追加: DokaKotsu_Calendar.mq5が書き出したテキストを読み、  |
 //| 「今日」の分だけラベル・JST時刻を配列で返す(件数を返り値に)              |
 //+------------------------------------------------------------------+
 int ReadTodayEconEvents(string &labels[], string &hhmms[])
@@ -805,7 +815,7 @@ int ReadTodayEconEvents(string &labels[], string &hhmms[])
   }
 
 //+------------------------------------------------------------------+
-//| ★2026-07-20(2回目)追加: DokaKotsu_US_Calendar.mq5(v6)がCAL_FILEへ  |
+//| ★2026-07-20(2回目)追加: DokaKotsu_Calendar.mq5(v6)がCAL_FILEへ  |
 //|   書き出す"HOLIDAY_JP|名前|時刻表記"行を読む。判定ロジックは        |
 //|   Calendar側のみに存在し、ここでは名前と時刻表記を読むだけ。         |
 //+------------------------------------------------------------------+
@@ -970,12 +980,12 @@ void CreatePanel()
 
    // タイトル + バッジ（バッジは右揃え）
    CreateLabelText("title",x+pad,curY,"DokaKotsu",COL_TEXT,9);
-   // ★2026-07-15変更: 固定「EA稼働中」から、DokaKotsu_US_Calendarの実在チェックへ変更
-   bool calOnChart = IsUsCalendarPresent();
+   // ★2026-07-15変更: 固定「EA稼働中」から、DokaKotsu_Calendarの実在チェックへ変更
+   bool calOnChart = IsCalendarPresent();
    if(calOnChart)
-      CreateLabelText("badge",rightEdge,curY+1,"● US_Calendar _連携中",COL_GREEN,7,"Arial",ANCHOR_RIGHT_UPPER);
+      CreateLabelText("badge",rightEdge,curY+1,"● Calendar_連携中",COL_GREEN,7,"Arial",ANCHOR_RIGHT_UPPER);
    else
-      CreateLabelText("badge",rightEdge,curY+1,"● US_Calendar_未連携",COL_RED,7,"Arial",ANCHOR_RIGHT_UPPER);
+      CreateLabelText("badge",rightEdge,curY+1,"● Calendar_未連携",COL_RED,7,"Arial",ANCHOR_RIGHT_UPPER);
    curY+=(int)(38*sc);
 
    // ロット / TOTAL pips（★2026-07-15(4回目)変更: 「0.1 Lot」を■(取引停止)/▶(復活)ボタンに置き換え）
@@ -1341,7 +1351,7 @@ void CreatePanel()
 
    // ★2026-07-20(2回目)修正: 前回追加した専用の赤/オレンジ行は削除。
    //   日本の祝日は経済指標と同じ並び(白文字・同じセル)の先頭に差し込む方式に変更。
-   //   判定ロジックはDokaKotsu_US_Calendar.mq5(v6)側のみに存在し、ここでは
+   //   判定ロジックはDokaKotsu_Calendar.mq5(v6)側のみに存在し、ここでは
    //   同ファイルが監査用CAL_FILEへ書き出す"HOLIDAY_JP"行の名前を読むだけ。
    string jpHolName = g_calJpName, jpHolHhmm = g_calJpHhmm;   // ★2026-07-21変更: 60秒キャッシュから取得
    if(g_calJpFound && jpHolName != "")

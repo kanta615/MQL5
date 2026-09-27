@@ -1,45 +1,46 @@
 ﻿//+------------------------------------------------------------------+
-//|                              DokaKotsu_HeikinAshi.mq5            |
-//|   平滑化平均足(Smoothed Heikin Ashi) ※表示専用                   |
+//|                              DokaKotsu_HeikinAshi_2.mq5           |
+//|   平滑化平均足(Smoothed Heikin Ashi) ※表示専用・単独計算版       |
 //|                                                                  |
-//|  ■■ 設計方針(2026-06-25) ■■                                    |
-//|    平均足の数値は このインジでは一切計算しない。                 |
-//|    本体インジ DokaKotsu_indicator_9 が後平滑化まで済ませた        |
-//|    平均足OHLC(buf16-19)を iCustom で参照して描画するだけ。       |
-//|    → 「見ている平均足」=「決済判定に使う平均足」が完全一致する。  |
-//|       前/後平滑の期間・方式は本体インジ側が唯一の真実(単一の値)。 |
-//|    変更できるのは 陽線・陰線の色 のみ。                          |
-//|                                                                  |
-//|  参照バッファ(本体インジ DokaKotsu_indicator_9):               |
-//|    16=平均足 始値 / 17=高値 / 18=安値 / 19=終値(いずれも後平滑後) |
-//|    色は (終値>=始値)?陽:陰 で判定(本体の haColor と同一規則)。   |
+//|  ■■ 2026-07-02 単独化 ■■                                        |
+//|    本体インジを参照せず、このインジ自身が前平滑→平均足→後平滑を  |
+//|    自分の入力で計算して描画する(開発・探索用に単独で動く)。      |
+//|    ・数値を変えると即このチャートに反映される。                  |
+//|    ・MA計算は DokaKotsu_Core.mqh の MAValue を共用。              |
+//|    ※注意: 本体インジ/EAが実際に使う平均足は本体の既定値。       |
+//|      ここで変えた値は表示だけで、売買には反映されない(単独)。    |
+//|      値が決まったら本体(コア)側の既定値を変更すること。          |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "2.10"
+#property version   "3.00"
 #property indicator_chart_window
 #property indicator_buffers 5
 #property indicator_plots   1
 
-//--- 平均足キャンドル(4値: Open High Low Close)＋色
+#include "DokaKotsu_Core.mqh"
+
+//--- 平滑化平均足キャンドル(4値: Open High Low Close)＋色
 #property indicator_label1  "DokaKotsu HA"
 #property indicator_type1   DRAW_COLOR_CANDLES
 #property indicator_color1  clrMediumSeaGreen, clrOrange
 #property indicator_width1  1
 
-//=== 入力(色だけ。数値は本体インジが保持) =========================
-input string InpSourceIndicator = "DokaKotsu_indicator_10"; // 参照する本体インジ名(既定_10。_9を使うなら変更。サブフォルダは "フォルダ\\名")
-input color  InpBullColor       = clrMediumSeaGreen;       // 陽線(上昇)の色
-input color  InpBearColor       = clrOrange;               // 陰線(下降)の色
+//=== 入力(このインジ自身の平均足パラメータ。単独で計算する) ============
+input group "平均足の作り(単独計算)"
+input int            InpHaPrePeriod  = 4;                   // 前平滑化の期間(既定4)
+input ENUM_MA_METHOD InpHaPreMethod  = MODE_SMMA;           // 前平滑化の方式(Smoothed)
+input int            InpHaPostPeriod = 5;                   // 後平滑化の期間(既定5)
+input ENUM_MA_METHOD InpHaPostMethod = MODE_SMMA;           // 後平滑化の方式(Smoothed)
+input group "表示(色)"
+input color          InpBullColor    = clrMediumSeaGreen;   // 陽線(上昇)の色
+input color          InpBearColor    = clrOrange;           // 陰線(下降)の色
 
-//=== バッファ(本体インジの値を受けるだけ) =========================
+//=== バッファ(このインジが計算して描く) ===============================
 double BufOpen[];
 double BufHigh[];
 double BufLow[];
 double BufClose[];
 double BufColor[];   // 0=陽線 / 1=陰線
-
-//=== 本体インジのハンドル =========================================
-int g_src = INVALID_HANDLE;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -55,18 +56,7 @@ int OnInit()
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, InpBearColor);
    PlotIndexSetDouble (0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   // 本体インジ(既定設定=前3/後5 SMMA)の平均足OHLCを参照するハンドル。
-   //   ※パラメータを渡さない=本体インジの既定値を使用。
-   //     本体側で前/後平滑を既定から変えた場合は表示もズレるので、変えるなら両方そろえること。
-   g_src = iCustom(_Symbol, _Period, InpSourceIndicator);
-   if(g_src == INVALID_HANDLE)
-   {
-      Print("DokaKotsu_HeikinAshi: 本体インジのハンドル取得に失敗 -> ", InpSourceIndicator,
-            " (同じIndicatorsフォルダに置くか、入力でパスを指定してください)");
-      return(INIT_FAILED);
-   }
-
-   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu HA (本体参照)");
+   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu HA (単独計算)");
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    return(INIT_SUCCEEDED);
 }
@@ -74,8 +64,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   if(g_src != INVALID_HANDLE) IndicatorRelease(g_src);
-   g_src = INVALID_HANDLE;
 }
 
 //+------------------------------------------------------------------+
@@ -92,36 +80,43 @@ int OnCalculate(const int rates_total,
 {
    if(rates_total < 5) return(0);
 
-   if(g_src == INVALID_HANDLE)
+   //--- ①前平滑化(本体と同じ作り) ---
+   double prO[],prH[],prL[],prC[];
+   ArrayResize(prO,rates_total); ArrayResize(prH,rates_total);
+   ArrayResize(prL,rates_total); ArrayResize(prC,rates_total);
+   for(int i=0;i<rates_total;i++)
    {
-      g_src = iCustom(_Symbol, _Period, InpSourceIndicator);
-      if(g_src == INVALID_HANDLE) return(0);
+      prO[i]=MAValue(open ,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
+      prH[i]=MAValue(high ,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
+      prL[i]=MAValue(low  ,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
+      prC[i]=MAValue(close,i,InpHaPrePeriod,InpHaPreMethod,rates_total);
    }
 
-   // 本体インジの計算が追いつくまで待つ(まだなら次ティックで再試行)
-   static int s_warn = -1;
-   int calc = BarsCalculated(g_src);
-   if(calc < rates_total)
+   //--- ②平均足の生値 ---
+   double hO[],hH[],hL[],hC[];
+   ArrayResize(hO,rates_total); ArrayResize(hH,rates_total);
+   ArrayResize(hL,rates_total); ArrayResize(hC,rates_total);
+   for(int i=0;i<rates_total;i++)
    {
-      if(s_warn != 1){ Print("DokaKotsu_HeikinAshi: 本体[",InpSourceIndicator,"]計算待ち BarsCalculated=",calc," / ",rates_total); s_warn=1; }
-      return(prev_calculated);
+      double hac=(prO[i]+prH[i]+prL[i]+prC[i])/4.0;
+      double hao=(i==0)?(prO[i]+prC[i])/2.0:(hO[i-1]+hC[i-1])/2.0;
+      hO[i]=hao; hC[i]=hac;
+      hH[i]=MathMax(prH[i],MathMax(hao,hac));
+      hL[i]=MathMin(prL[i],MathMin(hao,hac));
    }
 
-   // 本体インジの平均足OHLC(buf16-19)をそのまま受け取る(計算はしない)
-   int r16=CopyBuffer(g_src,16,0,rates_total,BufOpen);
-   int r17=CopyBuffer(g_src,17,0,rates_total,BufHigh);
-   int r18=CopyBuffer(g_src,18,0,rates_total,BufLow);
-   int r19=CopyBuffer(g_src,19,0,rates_total,BufClose);
-   if(r16<=0||r17<=0||r18<=0||r19<=0)
+   //--- ③後平滑化 → OHLC出力＋色 ---
+   for(int i=0;i<rates_total;i++)
    {
-      if(s_warn != 2){ Print("DokaKotsu_HeikinAshi: buf16-19読取失敗 r16=",r16," r17=",r17," r18=",r18," r19=",r19," → 本体[",InpSourceIndicator,"]が平均足バッファ付きでコンパイル済みか確認"); s_warn=2; }
-      return(prev_calculated);
+      double o=MAValue(hO,i,InpHaPostPeriod,InpHaPostMethod,rates_total);
+      double h=MAValue(hH,i,InpHaPostPeriod,InpHaPostMethod,rates_total);
+      double l=MAValue(hL,i,InpHaPostPeriod,InpHaPostMethod,rates_total);
+      double c=MAValue(hC,i,InpHaPostPeriod,InpHaPostMethod,rates_total);
+      double hi=MathMax(h,MathMax(o,c));
+      double lo=MathMin(l,MathMin(o,c));
+      BufOpen[i]=o; BufHigh[i]=hi; BufLow[i]=lo; BufClose[i]=c;
+      BufColor[i]=(c>=o)?0.0:1.0;   // 0=陽線 / 1=陰線
    }
-   if(s_warn != 0){ Print("DokaKotsu_HeikinAshi: 描画OK 本体[",InpSourceIndicator,"] BarsCalculated=",calc); s_warn=0; }
-
-   // 色だけ判定(本体インジの haColor と同一規則: 終値>=始値 で陽線)
-   for(int i=0; i<rates_total; i++)
-      BufColor[i] = (BufClose[i] >= BufOpen[i]) ? 0.0 : 1.0; // 0=陽線 / 1=陰線
 
    return(rates_total);
 }

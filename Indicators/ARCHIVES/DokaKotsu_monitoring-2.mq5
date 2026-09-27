@@ -7,19 +7,6 @@
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
 //|                                                                    |
-//|  ■ 修正日: 2026-09-09  修正内容                                  |
-//|    「EA稼働中/取引停止中/EA停止中」の3状態が、EA心拍(IsEaAlive)と  |
-//|    手動一時停止ボタン(DK_DASH_TRADEPAUSE)しか見ておらず、MT5端末   |
-//|    側のアルゴ取引ボタンOFF(TERMINAL_TRADE_ALLOWED=false)や口座側の |
-//|    EA取引不許可(ACCOUNT_TRADE_EXPERT=false)で発注がブロックされて  |
-//|    いても(retcode 10027等)「EA稼働中」と誤表示していた問題を修正  |
-//|    (田島さん報告。Watchdog側は2026-09-09付で同種の修正を先行実装  |
-//|    済み、本ファイルも同じ考え方で追従)。TerminalInfoInteger        |
-//|    (TERMINAL_TRADE_ALLOWED)とAccountInfoInteger                    |
-//|    (ACCOUNT_TRADE_EXPERT)を本パネル自身が直接読み(EA側GVの書き    |
-//|    忘れに依存しない一箇所管理)、eaAlive=trueかつalgoOk=falseの時は |
-//|    「自動売買OFF」(赤・点滅なし)を表示するよう4状態化。            |
-//|                                                                    |
 //|  ■ 修正日: 2026-09-07  修正内容                                  |
 //|    ①ファイル名を DokaKotsu_Dashboard.mq5 → DokaKotsu_monitoring.mq5|
 //|      に変更(名称が実態と分かりづらいとのご指摘のため。            |
@@ -989,23 +976,12 @@ void CreatePanel()
    // ★2026-09-07変更: DK_DASH_TRADEPAUSE(手動停止スイッチ)だけでなく、EA心拍(IsEaAlive)も見て
    //   「EA停止中/取引停止中/EA稼働中」の3状態を正しく区別する(旧ロジックはEAが実際に死んでいても
    //   手動停止していなければ「EA稼働中」と表示してしまっていた)。
-   // ★2026-09-09追加: EA心拍が生きていても、MT5端末側のアルゴ取引ボタンOFFや口座側のEA取引
-   //   不許可で発注がブロックされている場合がある(retcode 10027等)。Watchdogと同じ考え方で、
-   //   TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)とAccountInfoInteger(ACCOUNT_TRADE_EXPERT)を
-   //   本パネル自身が直接読み(EA側GVの書き忘れに依存しない一箇所管理)、手動停止とは別の
-   //   「自動売買OFF」状態として区別表示する。
    bool   eaAlive  = IsEaAlive();
-   bool   algoOk   = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);   // ★2026-09-09追加
    string pauseTxt; color pauseCol;
    if(!eaAlive)
      {
       pauseTxt = "EA停止中";
       pauseCol = COL_RED;   // EA自体が死んでいる場合は点滅させない(誤って正常に見えないように)
-     }
-   else if(!algoOk)
-     {
-      pauseTxt = "自動売買OFF";   // ★2026-09-09追加: アルゴ取引ボタン(Ctrl+E)/口座設定を確認
-      pauseCol = COL_RED;
      }
    else if(dashPaused)
      {
