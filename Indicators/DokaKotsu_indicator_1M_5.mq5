@@ -1,9 +1,18 @@
 ﻿//+------------------------------------------------------------------+
-//|                           DokaKotsu_indicator_1M_4.mq5             |
+//|                           DokaKotsu_indicator_1M_5.mq5             |
 //|   DokaKotsu_indicator_1M_1.mq5(17-2ベースの1分足改造版)から       |
 //|   スパイク面積閾値の5倍スケーリング等の修正を経て、動作良好と      |
-//|   確認できたため、1M_4として名称変更したもの。                     |
-//|   最終更新: 2026-10-02                                            |
+//|   確認できたため、1M_5として名称変更したもの。                     |
+//|   最終更新: 2026-10-02(2回目)                                     |
+//|                                                                  |
+//|  ■ 修正日: 2026-10-02(2回目)  修正内容(長期足の種類・期間変更、    |
+//|    バージョン5へ改名)                                             |
+//|    田島さんご指示により、長期足(InpLongType)をKAMA→SMAに変更、    |
+//|    長期足の期間(InpLongPeriod)を900→800に変更。あわせてファイル   |
+//|    名をDokaKotsu_indicator_1M_4.mq5からDokaKotsu_indicator_1M_5.mq5|
+//|    へ改名(ファイル名・#property version・DK_VERSION・            |
+//|    IndicatorSetString・デバッグPrintタグを全て1M_5に統一)。       |
+//|    上記2点以外のロジック変更はなし。                              |
 //|                                                                  |
 //|  ■ 修正日: 2026-10-02  修正内容(新規チャートでのフリーズを修正)    |
 //|    田島さんより「新しいチャートを作ってこれらを添付するとフリーズ  |
@@ -41,7 +50,7 @@
 //|    ①決済用平均足(HA)の前後平滑化を1/1→25/25へ再度戻した。        |
 //|      田島さんより「決済がおかしい、毎回1分で決済される」との      |
 //|      ご指摘を受け検証したところ、9/23に1/1へ戻した変更が原因と    |
-//|      判明。表示側インジDokaKotsu_HeikinAshi_1M_4.mq5を、この      |
+//|      判明。表示側インジDokaKotsu_HeikinAshi_1M_5.mq5を、この      |
 //|      決済判定が使う平均足バッファ(BufHaOpen/High/Low/Close、      |
 //|      buf16-19)をiCustom経由でそのまま参照する方式に作り直し、     |
 //|      表示と決済が別々に平滑化されて食い違う二重管理を解消した      |
@@ -62,11 +71,11 @@
 //|    のみ、③は表示位置のみ)。                                     |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1M4.00"
+#property version   "1M5.00"
 
 //=== バージョン情報(最新版か確認用) ==============================
-#define DK_VERSION   "Ver1.0(_1M_4_v7)"
-#define DK_BUILD     "2026-10-02 ★新規チャートでのフリーズを修正。market_state_XAUUSD.raw_PERIOD_M1.csvが7.26GBまで肥大化し(trade_state_logで9/24に起きたのと同じ重複書き込み系の不具合)、起動のたびに全件読込しようとしてディスクI/O待ちでフリーズしていた(CPU使用率は低いまま)。新規input InpStateLogMaxMB(既定50)とBackupAndRecreateStateLog()を追加し、trade_state_logと同じ「読込前にサイズ確認→上限超過なら読まず退避」の仕組みをmarket_state_logにも適用。既存の常時稼働チャートはメモリキャッシュ済みのため再読込自体をスキップしており無関係、新規チャート添付時だけ発生していた点とも一致。書き込み側の重複の根本原因は未調査。DK_VERSIONを_1M_4_v7へ。 / 2026-09-28 ★エントリー直後の即決済を防止。新規input InpUseHaEntryGate(既定true)を追加し、allowLogicCに「決済用平均足(haColor)がエントリー方向と一致」条件を追加、見送り理由はreason52。原因は、ロジックCが平均足を見ずにエントリーする一方、決済は平均足反転のみのため、25/25で遅い平均足が逆向きの間に入ると入った瞬間に決済条件が成立していたこと(9/28 20:13 SELL、平均足上昇のまま入り同分に決済)。DK_VERSIONを_1M_4_v6へ。 / 2026-09-25(3回目) ★決済✖マーカーの表示位置バグを修正。田島さんより「決済の✖がおかしなところで表示されている」(ea3.JPG、強い上昇トレンド中に✖が実際のローソク足から大きく下に離れた位置に出ていた)とのご指摘。原因は、決済マーカー(BufExit)のY座標にsma2[i](SMA20を二重平滑した、背景色判定用の緩やかな基準線)をそのまま使っていたため。sma2は判定用の内部基準線であって実際の価格ではないので、強いトレンド中は価格から大きく乖離した位置に取り残され、✖が実勢価格から離れた場所に表示されてしまっていた。決済ロジック(どのタイミングで決済するか・reasonコード)自体は一切変更しておらず、あくまで表示位置だけの修正。BufBuy/BufSellの矢印がlow[i]-atr[i]*0.5 / high[i]+atr[i]*0.5(ローソク足のすぐ外側)で表示されているのと同じ流儀に合わせ、ロング決済(pos==1側、8箇所)はlow[i]-atr[i]*0.5、ショート決済(pos==-1側、8箇所)はhigh[i]+atr[i]*0.5に変更。これで決済✖は常にその足の実際のローソクのすぐ外側に表示されるようになる。 / 2026-09-25(2回目) ★決済用平均足の実際の期間をJournalに出力する診断ログを追加。田島さんより「EAは再起動している、チャートは変わらず正しい」とのご報告を受け、実機のJournal(22:14頃、9/24分)を確認したところ、同じDokaKotsu_indicator_1M_4が同時刻帯に2インスタンス起動していた(①手動でチャートに貼った方、②EAがiCustom()で裏に自動生成した方。②は市場状態ログ・取引状態ログのオープンに失敗(err=5004、①が既にファイルを掴んでいるため)しつつも起動は継続)。実際の決済判定(reason30)は②側のBufHaState(buf14)を読んでいるため、①のプロパティ画面で25/25が見えていても、②側が別の値(例えば古い.ex5の既定値のまま)を使っていれば表示と決済が食い違う。この仮説を実機で確認できるよう、OnInit完了時にInpHaPrePeriod/InpHaPostPeriod/InpHaPreMethod/InpHaPostMethodの実際の値をPrintするようにした。ターミナル再起動後、両インスタンスのこのログ行を見比べれば、どちらが原因かすぐに切り分けられる。判定ロジック自体の変更はなし。 / 2026-09-25 ★決済用平均足(HA)の前後平滑化を1/1→25/25へ再度戻した。田島さんより「決済がおかしい、毎回1分で決済される」とのご指摘を受け、reason_20260925.csvを検証したところ全エントリーが0〜7分以内に「決済(平均足反転)」(reason30)で決済されており、9/23に1/1(無平滑)へ戻した変更が直接の原因と判明(9/23時点のメモにも「本当の原因は表示側インジが25/25に追従できていないだけの可能性が高い」との注記あり、対症療法だった)。今回は対症療法を繰り返さず、表示側インジDokaKotsu_HeikinAshi_1M_4.mq5(旧HeikinAshi_1M_3.mq5から改名)を、この決済判定が使っている平均足バッファ(BufHaOpen/High/Low/Close、buf16-19)をiCustom経由でそのまま参照して描画する方式に作り直し、表示と決済が別々に平滑化されて食い違う二重管理の構造自体を解消した(詳細はDokaKotsu_HeikinAshi_1M_4.mq5側のヘッダー参照)。これによりチャートに見えている平均足の動き=決済判定に使われている平均足の動きが常に完全一致するようになったため、決済側は本来の25/25(SMMA)へ安心して戻せる。DK_VERSIONを_1M_4_v3へ。 / 2026-09-24 ★インジ投入時のMT5画面フリーズを修正。田島さんの実機ログ(21:50:46)で「状態ログ読込完了」の直後に止まり、次に出るはずの「取引状態ログ読込完了」「EventSetTimer(30) 登録完了」が一切出ていなかったことから、OnInit内の取引状態ログ全件読込(LoadTradeStateCacheAndOpenHandle)が終わっていないと特定。MT5では同じ銘柄のインジは全て1スレッドで動くため、ここが終わらないとjsttime_sub等も含めチャート全体が固まる。原因の連鎖: ①2026-09-22の列追加(12→14列)後に旧形式ログが残ると列がずれて時刻が不正値になり昇順が崩れる/チャート左側に古い履歴が後から読み込まれると古い時刻が末尾に追記されて同じく昇順が崩れる→②バイナリサーチ(FindTradeStateCache)が全て失敗→③全確定足が毎ティック「未記録」扱いで再追記→④ログが肥大化→⑤次回起動時の全件読込でフリーズ。対策: (a)AppendTradeStateCacheに昇順維持ガードを追加(末尾以下の時刻は追記しない)、(b)読込前にファイルサイズを確認し新規input InpTradeStateLogMaxMB(既定50MB)超過なら読まずに.bak_日時へ退避して作り直す、(c)1行ずつ14列かを検証し旧形式・破損なら同様に退避、(d)読込時も重複・逆順行を捨てる。読込開始時のサイズと所要時間(ms)もログに出す。売買判定ロジック自体の変更はなし。相場状態ログ(market_state)側にも同じ種類の昇順崩れリスクがあるが、今回は1箇所ずつの方針で取引状態ログのみ対応。DK_VERSIONを_1M_4_v2へ。 / 2026-09-23 ★決済用平均足(HA)の前後平滑化を25/25→1/1(無平滑)へ戻した。田島さんより実際のチャート画像(heikinnashi.JPG)の提供を受けて確認したところ、01:48前後で画面に表示されているローソクは数本おきに頻繁に色が変わっており、25/25の二段SMMA平滑化(本来ならごく緩やかにしか反転しないはず)とは明らかに反転の速さが違っていた。コード上、決済色(haColor)は表示用バッファ(BufHaOpen/Close等)と全く同じ計算式・同じ値を使っており、この指標ファイル単体では表示と判定が食い違う要因は無い(haColor[i]=(c>=o)?0:1; // 決済判定の色=表示色と同一、とコード上も明記済み)。したがって食い違いの原因は、チャートに実際に乗っている平均足の描画(DokaKotsu_HeikinAshi_1M_4.mq5、本セッションには未アップロード)側が、2026-09-15の変更(1→25)に追従できておらず、古い平滑化のまま、またはそもそも別の描画(MT5標準ローソク/標準Heikin Ashi等)になっている可能性が高いと判断した。田島さんのご指示「決済をインジに合わせて、見たとおりにしたい」を受け、実際に画面に見えている(頻繁に反転する)動きに合わせる方向で、2026-09-10と同じ「MT5標準Heiken Ashiと同じ無平滑」の設定(InpHaPrePeriod/InpHaPostPeriod=1/1)に戻した。★注意: この前後平滑化(1/25間)は2026-09-10→2026-09-15→2026-09-23で既に3回変更されており、根本原因は表示側インジ(DokaKotsu_HeikinAshi_1M_4.mq5)の平滑化設定が本ファイルと連動して管理されていないことにある。表示側インジのファイルを次回共有いただければ、値を都度往復させる対症療法ではなく、本ファイルのBufHaOpen/High/Low/Close(バッファ16-19)を表示側が直接参照する形に揃え、平滑化の二重管理自体を解消したい。 / 2026-09-22 ★決済後の同方向再エントリーを5分間禁止するルール(reason51)を新設。田島さんより「連続でエントリーしたが、間隔のルールはあるか」→実データ調査(reason_20260922.csv,18:32〜18:34)で、SELLエントリー→同じ1分足内で平均足反転(reason30)により即決済→次の1分足でまた同方向のSELLエントリー、という決済を挟んだ連続エントリーが3回連続で発生していたことが判明。既存の再エントリーロック(reason14=WMA/reason50=長期足)はいずれも「グレーに戻るまで」という条件のため、決済自体がグレー無しの平均足反転で起きた今回のケースは対象外だった。また別途、決済後にInpCooldownBars(既定25本=25分)だけ新規を止める既存の仕組み(cdLeft、reason15)も発見したが、これはロジックA(旧・全フィルター判定)専用の変数で、実際の発注判定に使われているロジックC(allowLogicC、InpEntryMode=ENTRY_MODE_C_WMA)には元々配線されておらず、現状は「決済後は新規を止める」という制御が実質的に効いていなかった(この既存の仕組み自体は今回変更していない)。今回は田島さんのご指示「5分間は禁止するルールを加える」に対応するため、cdLeftとは別に、直近決済の方向と時刻を保持する新変数lastExitDir/lastExitTimeを新設し、同方向への再エントリーだけを決済から5分間(InpExitDirLockSec、既定300秒)禁止するようallowLogicCに追加した(新規input InpUseExitDirLock、既定true)。時間ベースの判定のため、チャート足種を変えても常に実時間5分を維持する。ロジックA(allow)・ロジックB(allowBBKC)は対象外(現在使われていないため)。lastExitDir/lastExitTimeは取引状態フリーズ(TradeStateRecord)にも追加したため、trade_state_logの列数が変わり旧形式のログファイルは読めなくなる(2026-09-10bのlongSegHadEntry追加時と同様)。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-18(2回目) ★バージョン4へ改名。田島さんご指示「バージョンを4にあげてもらえますか」により、ファイル名をDokaKotsu_indicator_1M_3.mq5からDokaKotsu_indicator_1M_4.mq5へ変更。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_4に統一。直前(同日1回目)の見送り理由コード表示バグ修正を含め、コード上の判定ロジック自体の変更はなし(改名のみ)。 / 2026-09-18 ★見送り理由コード表示の重大バグを修正。田島さんより「矢印が出ているのに入らない」「長期足が十分でないのに矢印が出るのはおかしい」とのご指摘を受けて調査したところ、実際の発注判定(allowFinal)は常に現在の既定ロジックC(allowLogicC)の結果で正しく、矢印(BufBuy/BufSell)もallowFinal=trueの時しか描画されていなかった(ここにバグはなかった)。バグがあったのは表示側で、ロジックC自身にそもそも存在しない条件(reason25「長期が後発」はロジックA専用で、ロジックCはlongOppose=明確な逆行のみチェックし、点灯順序は一切見ない)であっても、ロジックA側の判定で先にBufReasonへ書き込まれた値が上書きされずそのまま見送り理由コードとして表示され続けていた。allowLogicCの評価順序(ライブM15不一致19→直前確定足未点灯24→再エントリーロック14→長期再エントリーロック50→スパイクADX禁止39→長期逆行22→タイミングずれ41→スクイーズ42)と完全に一致する形でreason上書きチェーンを新設し、以後は見送り理由コードが常にロジックCの実際のブロック理由を正しく反映する。 / 2026-09-16 ★MA急反転(reason31)/MAグレー化(reason32)の保険フォールバック決済を全面停止。田島さんより重ねてのご指摘(「MAグレー化決済をやめてほしいと何度も言っている」)を受け、新規input InpUseMaFallbackExit(既定false)を追加し、pos==1/pos==-1双方・InpHaPriorityExit有無の両分岐にある計4箇所のwmaDir系フォールバック(31/32)全てをこのフラグでガード。既定falseの間は決済が平均足反転(reason30)・スパイク面積(33)・ウェーブクロス救済(34)のみで判断されるようになり、WMAが平均足より先に崩れても平均足の反転を待つ(=平均足の前後平滑化25/25がそのまま決済タイミングに反映される)。true に戻せば従来の保険付き動作に復帰可能。 / 2026-09-15 ★ファイル名をDokaKotsu_indicator_1M_2.mq5からDokaKotsu_indicator_1M_4.mq5へ変更。決済用平均足(HA)の前後平滑化をInpHaPrePeriod/InpHaPostPeriod共に1→25に変更(1分足の生の平均足から、表示用インジDokaKotsu_HeikinAshi_1M_4.mq5と同じ前後平滑化25/25の滑らかな平均足へ)。haPreEff/haPostEffはinput値をそのまま使う実装のため、このinput変更のみで決済判定(haColor)・表示(BufHaOpen等)双方にそのまま反映される(コード変更不要)。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_2]→[indicator_1M_4])を全て1M_4に統一。 / 2026-09-10b ★長期足(longDir)版の再エントリーロックを新設(reason50)。田島さんより「長期足で、色が同じ間は1回しか入れないルールを加えられますか」とのご依頼。既存のWMA(短期)版の再エントリーロック(segHadEntry/trendDir、グレーを挟むまで同方向の再エントリーを禁止・reason14)と全く同じ考え方を、longDir(長期足の色)にも適用。longSegHadEntry/longTrendDirを新設し、長期足が色に入ったら方向を記録、グレー(0)に戻るまで同方向の新規エントリーを禁止する。ロジックA(旧チェーン/allow)・ロジックB(allowBBKC)・ロジックC(allowLogicC=実際に発注判定に使われている経路)全てに反映。新規input InpUseLongSegLock(既定true)でON/OFF可能。確定足フリーズ用の取引状態ログ(TradeStateRecord)にも2フィールド(longSegHadEntry/longTrendDir)を追加したため、列数が変わり旧形式のログファイルは読めなくなる。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-10 ★決済用平均足(HA)の前後平滑化を撤廃(InpHaPrePeriod 8→1・InpHaPostPeriod 10→1)。田島さんより「MT5標準の平均足インジと見た目を合わせたい。数値を小さくすると表示用インジの見え方も変わるので、いつまでも一致しない」とのご指摘。9/1(8回目)の×5スケーリング撤回で1分足の生データは使うようになっていたが、9/1(10回目)で表示用インジ(DokaKotsu_HeikinAshi_1m)に合わせるため前後平滑化(SMMA)を4/5→8/10に強めており、これがSMMAの遅延特性により4〜5本の反応遅れとして再発していた。MAValue()はperiod<=1で平滑なし(生値)を返す仕様のため、前後とも1にすることでMT5標準Heiken Ashiと同じ無平滑の計算式に一致させた。表示用HAインジ(DokaKotsu_HeikinAshi_1m.mq5)側も同じ値(1/1)に合わせて初めて見た目が一致する点に注意(未対応・別途要修正)。 / 2026-09-08 ★【1分足限定・一時措置】田島さんご指示により、エントリー最終ゲートをVolScoreからMACD色一致に一時差し替え可能にした。新規input InpUseMacdFinalGate(既定false)。trueにすると、BUY方向はMACD上昇(緑)・SELL方向はMACD下降(赤)の時だけ通過し、グレーまたは逆色ならreason49で見送り(既存のreason44 MACD免除ゲートで使っているDokaKotsu_MACD_Filterのハンドル/バッファをそのまま流用)。このフラグがtrueの間はInpUseVolScoreGateの値に関わらずVolScoreゲート(reason43)を完全にスキップし、二重ゲート化を避けている。reason46は5分足系列でEA側ReasonTextが既に別の意味(MACD免除エントリー)で使用済みだったため、番号衝突を避けreason49を新規採番。VolScore自体のコード・input(InpUseVolScoreGate/InpVolScoreLowPct)は削除せず温存しており、InpUseMacdFinalGate=falseに戻せばいつでも元のVolScoreゲートに復帰できる。 / 2026-09-01(10回目) ★決済用平均足(HA)の平滑化期間を変更。InpHaPrePeriod(4→8)・InpHaPostPeriod(5→10)。田島さんご指示により、単独計算版の表示用インジDokaKotsu_HeikinAshi_1m.mq5(同じく前平滑化8・後平滑化10に変更済み)と同じ値に統一。8回目の対応で×5スケーリングは既に撤回済み(haPreEff/haPostEffはinput値をそのまま使用)のため、このinput変更がそのまま決済判定の平均足に反映される。 / 2026-09-01(9回目) ★ADX関連の5倍スケーリングを撤回。InpAdxPeriod(60→12)・InpAdxEmaPeriod(250→50)・InpAdxConfirmBars(10→2)。田島さんより実際のログ(2026.09.02 21:33〜23:53)で「22時にエントリーしていない」とのご指摘。ログを確認すると、平均足・長期足・15分足・波はすべて上昇一致していたにもかかわらず、21:33〜22:44の1時間以上「ADXグレー」の状態が続き、スパイクADX禁止(reason39)がずっと解除されず、ADXがようやく「上昇」に転換した22:45にBUYが発生していた。原因はADX自体の計算期間(InpAdxPeriod/InpAdxEmaPeriod)と、非グレー確認の連続本数(InpAdxConfirmBars)の両方を5倍スケーリングしていたため。特にInpAdxConfirmBarsはWMAのInpColorConfirmBarsと同じ「連続確認本数」系の設定で、以前(2026-08-27)にWMA側で5倍化は逆効果と判明済みだった教訓を、ここにも適用すべきだった。3つとも17-2本来の値に戻した。 / 2026-09-01(8回目) ★決済用平均足(HA)の×5スケーリングを撤回。田島さんより「決済が5本くらい遅い、1分足の平均足で決済してほしい」とのご指摘。従来はInpHaPrePeriod/InpHaPostPeriod(4/5)を内部で×5(20本/25本)にして、5分足版と同じ「実時間の長さ」の平滑化を保つ設計だったが、これがまさに決済の遅れの原因だった。haPreEff/haPostEffをInpHaPrePeriod/InpHaPostPeriodそのまま(素の4本/5本)に変更し、1分足チャート本来の速さの平均足で決済するようにした。 / 2026-09-01(7回目) ★ファイル名をDokaKotsu_indicator_1M_1.mq5からDokaKotsu_indicator_1M_4.mq5へ変更。田島さんより、6回目のスパイク面積スケーリング修正後、動作が良くなったとのご確認をいただいたため、区切りとして1M_4に改名。ファイル名・#property version(1M2.01)・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_1]→[indicator_1M_4])を全て1M_4に統一。コード上の判定ロジック自体の変更はなし(6回目までの内容がそのまま1M_4の初期状態)。 / 2026-09-01(6回目) ★スパイク面積閾値を5倍スケーリング。InpSpikeEntryThresh(300→1500)・InpSpikeAreaThresh(1000→5000)。田島さんが「スパイクは出ていないのにreason39(スパイクADX禁止)が出る」とご指摘。スパイク面積は「価格変動幅×スイングにかかったバー本数」で計算されており、1分足は5分足より同じ実時間により多くのバーが対応する(5倍)ため、面積の値も約5倍水増しされ、閾値300を実質超えやすくなっていた(=普通の値動きがスパイク扱いされていた)。他の本数ベースinputと同じ5倍スケーリング方針をここにも適用。 / 2026-09-01(5回目・バグ修正) ★見送り理由コードの表示バグを修正。田島さんの41.JPGで、InpUseM15Filter=falseを確認済み(スクリーンショットで裏付け)なのに見送り理由コード=41が表示され続けていた件を調査。原因: reason41を表示する行(if(timingMissed) BufReason[i]=41.0;)が、allowLogicC側のInpUseM15Filterバイパスを反映しておらず、実際のブロック理由が別(スパイクADX禁止・長期足・スクイーズ等)であっても、timingMissedの生の値がtrueなら無条件に41と表示してしまっていた。if(InpUseM15Filter && timingMissed) BufReason[i]=41.0;に修正し、InpUseM15Filter=falseの時は表示上もM15を理由にしないようにした。これで今後は実際のブロック理由が正しく表示されるはず。 / 2026-09-01(4回目) ★M15フィルターを一時無効化(InpUseM15Filter=true→false)。田島さんより「M1ローリング(緩め)も本物M15(遅すぎ)もダメ、17-2の方が良い、たぶん15分に問題がある」とのご指摘を受け、まずWMAのみでの矢印頻度を確認する目的。InpUseM15Filterは元々一部の分岐(reason19)しかガードしておらず、ロジックC(allowLogicC、実際に使われているENTRY_MODE_C_WMA)内の m15dCur==d 直接比較とtimingMissedラッチはこのフラグと無関係に常時適用される作りだったため、両方とも (!InpUseM15Filter || ...) で無効化できるよう修正。これでInpUseM15Filter=falseにすると、M15関連の判定(reason41相当)は完全にスキップされ、WMA・スパイク禁止・長期足・スクイーズ等の他条件のみでエントリー判定される。"
+#define DK_VERSION   "Ver1.0(_1M_5_v1)"
+#define DK_BUILD     "2026-10-02(2回目) ★長期足の種類をKAMA→SMA、期間を900→800に変更(田島さんご指示)。あわせてファイル名をDokaKotsu_indicator_1M_4.mq5からDokaKotsu_indicator_1M_5.mq5へ改名し、ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_5に統一。DK_VERSIONの番号は_1M_5_v1へリセット。 / 2026-10-02 ★新規チャートでのフリーズを修正。market_state_XAUUSD.raw_PERIOD_M1.csvが7.26GBまで肥大化し(trade_state_logで9/24に起きたのと同じ重複書き込み系の不具合)、起動のたびに全件読込しようとしてディスクI/O待ちでフリーズしていた(CPU使用率は低いまま)。新規input InpStateLogMaxMB(既定50)とBackupAndRecreateStateLog()を追加し、trade_state_logと同じ「読込前にサイズ確認→上限超過なら読まず退避」の仕組みをmarket_state_logにも適用。既存の常時稼働チャートはメモリキャッシュ済みのため再読込自体をスキップしており無関係、新規チャート添付時だけ発生していた点とも一致。書き込み側の重複の根本原因は未調査。DK_VERSIONを_1M_5_v7へ。 / 2026-09-28 ★エントリー直後の即決済を防止。新規input InpUseHaEntryGate(既定true)を追加し、allowLogicCに「決済用平均足(haColor)がエントリー方向と一致」条件を追加、見送り理由はreason52。原因は、ロジックCが平均足を見ずにエントリーする一方、決済は平均足反転のみのため、25/25で遅い平均足が逆向きの間に入ると入った瞬間に決済条件が成立していたこと(9/28 20:13 SELL、平均足上昇のまま入り同分に決済)。DK_VERSIONを_1M_5_v6へ。 / 2026-09-25(3回目) ★決済✖マーカーの表示位置バグを修正。田島さんより「決済の✖がおかしなところで表示されている」(ea3.JPG、強い上昇トレンド中に✖が実際のローソク足から大きく下に離れた位置に出ていた)とのご指摘。原因は、決済マーカー(BufExit)のY座標にsma2[i](SMA20を二重平滑した、背景色判定用の緩やかな基準線)をそのまま使っていたため。sma2は判定用の内部基準線であって実際の価格ではないので、強いトレンド中は価格から大きく乖離した位置に取り残され、✖が実勢価格から離れた場所に表示されてしまっていた。決済ロジック(どのタイミングで決済するか・reasonコード)自体は一切変更しておらず、あくまで表示位置だけの修正。BufBuy/BufSellの矢印がlow[i]-atr[i]*0.5 / high[i]+atr[i]*0.5(ローソク足のすぐ外側)で表示されているのと同じ流儀に合わせ、ロング決済(pos==1側、8箇所)はlow[i]-atr[i]*0.5、ショート決済(pos==-1側、8箇所)はhigh[i]+atr[i]*0.5に変更。これで決済✖は常にその足の実際のローソクのすぐ外側に表示されるようになる。 / 2026-09-25(2回目) ★決済用平均足の実際の期間をJournalに出力する診断ログを追加。田島さんより「EAは再起動している、チャートは変わらず正しい」とのご報告を受け、実機のJournal(22:14頃、9/24分)を確認したところ、同じDokaKotsu_indicator_1M_5が同時刻帯に2インスタンス起動していた(①手動でチャートに貼った方、②EAがiCustom()で裏に自動生成した方。②は市場状態ログ・取引状態ログのオープンに失敗(err=5004、①が既にファイルを掴んでいるため)しつつも起動は継続)。実際の決済判定(reason30)は②側のBufHaState(buf14)を読んでいるため、①のプロパティ画面で25/25が見えていても、②側が別の値(例えば古い.ex5の既定値のまま)を使っていれば表示と決済が食い違う。この仮説を実機で確認できるよう、OnInit完了時にInpHaPrePeriod/InpHaPostPeriod/InpHaPreMethod/InpHaPostMethodの実際の値をPrintするようにした。ターミナル再起動後、両インスタンスのこのログ行を見比べれば、どちらが原因かすぐに切り分けられる。判定ロジック自体の変更はなし。 / 2026-09-25 ★決済用平均足(HA)の前後平滑化を1/1→25/25へ再度戻した。田島さんより「決済がおかしい、毎回1分で決済される」とのご指摘を受け、reason_20260925.csvを検証したところ全エントリーが0〜7分以内に「決済(平均足反転)」(reason30)で決済されており、9/23に1/1(無平滑)へ戻した変更が直接の原因と判明(9/23時点のメモにも「本当の原因は表示側インジが25/25に追従できていないだけの可能性が高い」との注記あり、対症療法だった)。今回は対症療法を繰り返さず、表示側インジDokaKotsu_HeikinAshi_1M_5.mq5(旧HeikinAshi_1M_3.mq5から改名)を、この決済判定が使っている平均足バッファ(BufHaOpen/High/Low/Close、buf16-19)をiCustom経由でそのまま参照して描画する方式に作り直し、表示と決済が別々に平滑化されて食い違う二重管理の構造自体を解消した(詳細はDokaKotsu_HeikinAshi_1M_5.mq5側のヘッダー参照)。これによりチャートに見えている平均足の動き=決済判定に使われている平均足の動きが常に完全一致するようになったため、決済側は本来の25/25(SMMA)へ安心して戻せる。DK_VERSIONを_1M_5_v3へ。 / 2026-09-24 ★インジ投入時のMT5画面フリーズを修正。田島さんの実機ログ(21:50:46)で「状態ログ読込完了」の直後に止まり、次に出るはずの「取引状態ログ読込完了」「EventSetTimer(30) 登録完了」が一切出ていなかったことから、OnInit内の取引状態ログ全件読込(LoadTradeStateCacheAndOpenHandle)が終わっていないと特定。MT5では同じ銘柄のインジは全て1スレッドで動くため、ここが終わらないとjsttime_sub等も含めチャート全体が固まる。原因の連鎖: ①2026-09-22の列追加(12→14列)後に旧形式ログが残ると列がずれて時刻が不正値になり昇順が崩れる/チャート左側に古い履歴が後から読み込まれると古い時刻が末尾に追記されて同じく昇順が崩れる→②バイナリサーチ(FindTradeStateCache)が全て失敗→③全確定足が毎ティック「未記録」扱いで再追記→④ログが肥大化→⑤次回起動時の全件読込でフリーズ。対策: (a)AppendTradeStateCacheに昇順維持ガードを追加(末尾以下の時刻は追記しない)、(b)読込前にファイルサイズを確認し新規input InpTradeStateLogMaxMB(既定50MB)超過なら読まずに.bak_日時へ退避して作り直す、(c)1行ずつ14列かを検証し旧形式・破損なら同様に退避、(d)読込時も重複・逆順行を捨てる。読込開始時のサイズと所要時間(ms)もログに出す。売買判定ロジック自体の変更はなし。相場状態ログ(market_state)側にも同じ種類の昇順崩れリスクがあるが、今回は1箇所ずつの方針で取引状態ログのみ対応。DK_VERSIONを_1M_5_v2へ。 / 2026-09-23 ★決済用平均足(HA)の前後平滑化を25/25→1/1(無平滑)へ戻した。田島さんより実際のチャート画像(heikinnashi.JPG)の提供を受けて確認したところ、01:48前後で画面に表示されているローソクは数本おきに頻繁に色が変わっており、25/25の二段SMMA平滑化(本来ならごく緩やかにしか反転しないはず)とは明らかに反転の速さが違っていた。コード上、決済色(haColor)は表示用バッファ(BufHaOpen/Close等)と全く同じ計算式・同じ値を使っており、この指標ファイル単体では表示と判定が食い違う要因は無い(haColor[i]=(c>=o)?0:1; // 決済判定の色=表示色と同一、とコード上も明記済み)。したがって食い違いの原因は、チャートに実際に乗っている平均足の描画(DokaKotsu_HeikinAshi_1M_5.mq5、本セッションには未アップロード)側が、2026-09-15の変更(1→25)に追従できておらず、古い平滑化のまま、またはそもそも別の描画(MT5標準ローソク/標準Heikin Ashi等)になっている可能性が高いと判断した。田島さんのご指示「決済をインジに合わせて、見たとおりにしたい」を受け、実際に画面に見えている(頻繁に反転する)動きに合わせる方向で、2026-09-10と同じ「MT5標準Heiken Ashiと同じ無平滑」の設定(InpHaPrePeriod/InpHaPostPeriod=1/1)に戻した。★注意: この前後平滑化(1/25間)は2026-09-10→2026-09-15→2026-09-23で既に3回変更されており、根本原因は表示側インジ(DokaKotsu_HeikinAshi_1M_5.mq5)の平滑化設定が本ファイルと連動して管理されていないことにある。表示側インジのファイルを次回共有いただければ、値を都度往復させる対症療法ではなく、本ファイルのBufHaOpen/High/Low/Close(バッファ16-19)を表示側が直接参照する形に揃え、平滑化の二重管理自体を解消したい。 / 2026-09-22 ★決済後の同方向再エントリーを5分間禁止するルール(reason51)を新設。田島さんより「連続でエントリーしたが、間隔のルールはあるか」→実データ調査(reason_20260922.csv,18:32〜18:34)で、SELLエントリー→同じ1分足内で平均足反転(reason30)により即決済→次の1分足でまた同方向のSELLエントリー、という決済を挟んだ連続エントリーが3回連続で発生していたことが判明。既存の再エントリーロック(reason14=WMA/reason50=長期足)はいずれも「グレーに戻るまで」という条件のため、決済自体がグレー無しの平均足反転で起きた今回のケースは対象外だった。また別途、決済後にInpCooldownBars(既定25本=25分)だけ新規を止める既存の仕組み(cdLeft、reason15)も発見したが、これはロジックA(旧・全フィルター判定)専用の変数で、実際の発注判定に使われているロジックC(allowLogicC、InpEntryMode=ENTRY_MODE_C_WMA)には元々配線されておらず、現状は「決済後は新規を止める」という制御が実質的に効いていなかった(この既存の仕組み自体は今回変更していない)。今回は田島さんのご指示「5分間は禁止するルールを加える」に対応するため、cdLeftとは別に、直近決済の方向と時刻を保持する新変数lastExitDir/lastExitTimeを新設し、同方向への再エントリーだけを決済から5分間(InpExitDirLockSec、既定300秒)禁止するようallowLogicCに追加した(新規input InpUseExitDirLock、既定true)。時間ベースの判定のため、チャート足種を変えても常に実時間5分を維持する。ロジックA(allow)・ロジックB(allowBBKC)は対象外(現在使われていないため)。lastExitDir/lastExitTimeは取引状態フリーズ(TradeStateRecord)にも追加したため、trade_state_logの列数が変わり旧形式のログファイルは読めなくなる(2026-09-10bのlongSegHadEntry追加時と同様)。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-18(2回目) ★バージョン4へ改名。田島さんご指示「バージョンを4にあげてもらえますか」により、ファイル名をDokaKotsu_indicator_1M_3.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_5に統一。直前(同日1回目)の見送り理由コード表示バグ修正を含め、コード上の判定ロジック自体の変更はなし(改名のみ)。 / 2026-09-18 ★見送り理由コード表示の重大バグを修正。田島さんより「矢印が出ているのに入らない」「長期足が十分でないのに矢印が出るのはおかしい」とのご指摘を受けて調査したところ、実際の発注判定(allowFinal)は常に現在の既定ロジックC(allowLogicC)の結果で正しく、矢印(BufBuy/BufSell)もallowFinal=trueの時しか描画されていなかった(ここにバグはなかった)。バグがあったのは表示側で、ロジックC自身にそもそも存在しない条件(reason25「長期が後発」はロジックA専用で、ロジックCはlongOppose=明確な逆行のみチェックし、点灯順序は一切見ない)であっても、ロジックA側の判定で先にBufReasonへ書き込まれた値が上書きされずそのまま見送り理由コードとして表示され続けていた。allowLogicCの評価順序(ライブM15不一致19→直前確定足未点灯24→再エントリーロック14→長期再エントリーロック50→スパイクADX禁止39→長期逆行22→タイミングずれ41→スクイーズ42)と完全に一致する形でreason上書きチェーンを新設し、以後は見送り理由コードが常にロジックCの実際のブロック理由を正しく反映する。 / 2026-09-16 ★MA急反転(reason31)/MAグレー化(reason32)の保険フォールバック決済を全面停止。田島さんより重ねてのご指摘(「MAグレー化決済をやめてほしいと何度も言っている」)を受け、新規input InpUseMaFallbackExit(既定false)を追加し、pos==1/pos==-1双方・InpHaPriorityExit有無の両分岐にある計4箇所のwmaDir系フォールバック(31/32)全てをこのフラグでガード。既定falseの間は決済が平均足反転(reason30)・スパイク面積(33)・ウェーブクロス救済(34)のみで判断されるようになり、WMAが平均足より先に崩れても平均足の反転を待つ(=平均足の前後平滑化25/25がそのまま決済タイミングに反映される)。true に戻せば従来の保険付き動作に復帰可能。 / 2026-09-15 ★ファイル名をDokaKotsu_indicator_1M_2.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。決済用平均足(HA)の前後平滑化をInpHaPrePeriod/InpHaPostPeriod共に1→25に変更(1分足の生の平均足から、表示用インジDokaKotsu_HeikinAshi_1M_5.mq5と同じ前後平滑化25/25の滑らかな平均足へ)。haPreEff/haPostEffはinput値をそのまま使う実装のため、このinput変更のみで決済判定(haColor)・表示(BufHaOpen等)双方にそのまま反映される(コード変更不要)。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_2]→[indicator_1M_5])を全て1M_5に統一。 / 2026-09-10b ★長期足(longDir)版の再エントリーロックを新設(reason50)。田島さんより「長期足で、色が同じ間は1回しか入れないルールを加えられますか」とのご依頼。既存のWMA(短期)版の再エントリーロック(segHadEntry/trendDir、グレーを挟むまで同方向の再エントリーを禁止・reason14)と全く同じ考え方を、longDir(長期足の色)にも適用。longSegHadEntry/longTrendDirを新設し、長期足が色に入ったら方向を記録、グレー(0)に戻るまで同方向の新規エントリーを禁止する。ロジックA(旧チェーン/allow)・ロジックB(allowBBKC)・ロジックC(allowLogicC=実際に発注判定に使われている経路)全てに反映。新規input InpUseLongSegLock(既定true)でON/OFF可能。確定足フリーズ用の取引状態ログ(TradeStateRecord)にも2フィールド(longSegHadEntry/longTrendDir)を追加したため、列数が変わり旧形式のログファイルは読めなくなる。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-10 ★決済用平均足(HA)の前後平滑化を撤廃(InpHaPrePeriod 8→1・InpHaPostPeriod 10→1)。田島さんより「MT5標準の平均足インジと見た目を合わせたい。数値を小さくすると表示用インジの見え方も変わるので、いつまでも一致しない」とのご指摘。9/1(8回目)の×5スケーリング撤回で1分足の生データは使うようになっていたが、9/1(10回目)で表示用インジ(DokaKotsu_HeikinAshi_1m)に合わせるため前後平滑化(SMMA)を4/5→8/10に強めており、これがSMMAの遅延特性により4〜5本の反応遅れとして再発していた。MAValue()はperiod<=1で平滑なし(生値)を返す仕様のため、前後とも1にすることでMT5標準Heiken Ashiと同じ無平滑の計算式に一致させた。表示用HAインジ(DokaKotsu_HeikinAshi_1m.mq5)側も同じ値(1/1)に合わせて初めて見た目が一致する点に注意(未対応・別途要修正)。 / 2026-09-08 ★【1分足限定・一時措置】田島さんご指示により、エントリー最終ゲートをVolScoreからMACD色一致に一時差し替え可能にした。新規input InpUseMacdFinalGate(既定false)。trueにすると、BUY方向はMACD上昇(緑)・SELL方向はMACD下降(赤)の時だけ通過し、グレーまたは逆色ならreason49で見送り(既存のreason44 MACD免除ゲートで使っているDokaKotsu_MACD_Filterのハンドル/バッファをそのまま流用)。このフラグがtrueの間はInpUseVolScoreGateの値に関わらずVolScoreゲート(reason43)を完全にスキップし、二重ゲート化を避けている。reason46は5分足系列でEA側ReasonTextが既に別の意味(MACD免除エントリー)で使用済みだったため、番号衝突を避けreason49を新規採番。VolScore自体のコード・input(InpUseVolScoreGate/InpVolScoreLowPct)は削除せず温存しており、InpUseMacdFinalGate=falseに戻せばいつでも元のVolScoreゲートに復帰できる。 / 2026-09-01(10回目) ★決済用平均足(HA)の平滑化期間を変更。InpHaPrePeriod(4→8)・InpHaPostPeriod(5→10)。田島さんご指示により、単独計算版の表示用インジDokaKotsu_HeikinAshi_1m.mq5(同じく前平滑化8・後平滑化10に変更済み)と同じ値に統一。8回目の対応で×5スケーリングは既に撤回済み(haPreEff/haPostEffはinput値をそのまま使用)のため、このinput変更がそのまま決済判定の平均足に反映される。 / 2026-09-01(9回目) ★ADX関連の5倍スケーリングを撤回。InpAdxPeriod(60→12)・InpAdxEmaPeriod(250→50)・InpAdxConfirmBars(10→2)。田島さんより実際のログ(2026.09.02 21:33〜23:53)で「22時にエントリーしていない」とのご指摘。ログを確認すると、平均足・長期足・15分足・波はすべて上昇一致していたにもかかわらず、21:33〜22:44の1時間以上「ADXグレー」の状態が続き、スパイクADX禁止(reason39)がずっと解除されず、ADXがようやく「上昇」に転換した22:45にBUYが発生していた。原因はADX自体の計算期間(InpAdxPeriod/InpAdxEmaPeriod)と、非グレー確認の連続本数(InpAdxConfirmBars)の両方を5倍スケーリングしていたため。特にInpAdxConfirmBarsはWMAのInpColorConfirmBarsと同じ「連続確認本数」系の設定で、以前(2026-08-27)にWMA側で5倍化は逆効果と判明済みだった教訓を、ここにも適用すべきだった。3つとも17-2本来の値に戻した。 / 2026-09-01(8回目) ★決済用平均足(HA)の×5スケーリングを撤回。田島さんより「決済が5本くらい遅い、1分足の平均足で決済してほしい」とのご指摘。従来はInpHaPrePeriod/InpHaPostPeriod(4/5)を内部で×5(20本/25本)にして、5分足版と同じ「実時間の長さ」の平滑化を保つ設計だったが、これがまさに決済の遅れの原因だった。haPreEff/haPostEffをInpHaPrePeriod/InpHaPostPeriodそのまま(素の4本/5本)に変更し、1分足チャート本来の速さの平均足で決済するようにした。 / 2026-09-01(7回目) ★ファイル名をDokaKotsu_indicator_1M_1.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。田島さんより、6回目のスパイク面積スケーリング修正後、動作が良くなったとのご確認をいただいたため、区切りとして1M_5に改名。ファイル名・#property version(1M2.01)・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_1]→[indicator_1M_5])を全て1M_5に統一。コード上の判定ロジック自体の変更はなし(6回目までの内容がそのまま1M_5の初期状態)。 / 2026-09-01(6回目) ★スパイク面積閾値を5倍スケーリング。InpSpikeEntryThresh(300→1500)・InpSpikeAreaThresh(1000→5000)。田島さんが「スパイクは出ていないのにreason39(スパイクADX禁止)が出る」とご指摘。スパイク面積は「価格変動幅×スイングにかかったバー本数」で計算されており、1分足は5分足より同じ実時間により多くのバーが対応する(5倍)ため、面積の値も約5倍水増しされ、閾値300を実質超えやすくなっていた(=普通の値動きがスパイク扱いされていた)。他の本数ベースinputと同じ5倍スケーリング方針をここにも適用。 / 2026-09-01(5回目・バグ修正) ★見送り理由コードの表示バグを修正。田島さんの41.JPGで、InpUseM15Filter=falseを確認済み(スクリーンショットで裏付け)なのに見送り理由コード=41が表示され続けていた件を調査。原因: reason41を表示する行(if(timingMissed) BufReason[i]=41.0;)が、allowLogicC側のInpUseM15Filterバイパスを反映しておらず、実際のブロック理由が別(スパイクADX禁止・長期足・スクイーズ等)であっても、timingMissedの生の値がtrueなら無条件に41と表示してしまっていた。if(InpUseM15Filter && timingMissed) BufReason[i]=41.0;に修正し、InpUseM15Filter=falseの時は表示上もM15を理由にしないようにした。これで今後は実際のブロック理由が正しく表示されるはず。 / 2026-09-01(4回目) ★M15フィルターを一時無効化(InpUseM15Filter=true→false)。田島さんより「M1ローリング(緩め)も本物M15(遅すぎ)もダメ、17-2の方が良い、たぶん15分に問題がある」とのご指摘を受け、まずWMAのみでの矢印頻度を確認する目的。InpUseM15Filterは元々一部の分岐(reason19)しかガードしておらず、ロジックC(allowLogicC、実際に使われているENTRY_MODE_C_WMA)内の m15dCur==d 直接比較とtimingMissedラッチはこのフラグと無関係に常時適用される作りだったため、両方とも (!InpUseM15Filter || ...) で無効化できるよう修正。これでInpUseM15Filter=falseにすると、M15関連の判定(reason41相当)は完全にスキップされ、WMA・スパイク禁止・長期足・スクイーズ等の他条件のみでエントリー判定される。"
 
 #property indicator_chart_window
 #property indicator_buffers 64
@@ -141,8 +150,8 @@ input string InpVersionInfo = "DokaKotsu_indicator_17-2.mq5(Ver12.0/2026-08-19)�
 input group "① 長期足"
 input bool         InpUseLongFilter = true;                 // 長期足一致フィルター(3本が同色に揃った時だけエントリー)
 input bool   InpUseLongFirst   = true;                      // 長期が先頭に点灯していることを必須にするか。true=長期が最後発(後発)ならエントリー禁止。false=順番不問(2026-07-08明確化:短中長期が同色に揃ってさえいればOK。InpUseLongFilterのみでゲート)
-input ENUM_WMATYPE InpLongType      = WT_KAMA;              // 長期足のMAの種類(KAMA)
-input int          InpLongPeriod    = 900;                  // ★1分足版:5倍(180→900)。長期足の期間
+input ENUM_WMATYPE InpLongType      = WT_SMA;               // ★2026-10-02: KAMA→SMAに変更(田島さんご指示)。長期足のMAの種類
+input int          InpLongPeriod    = 800;                  // ★2026-10-02: 900→800に変更(田島さんご指示)。★1分足版:5倍(180→900)。長期足の期間
 input int          InpLongSlopeStep   = 25;                 // ★1分足版:5倍(5→25)。長期足: 傾き1サンプルを測る本数(旧InpLongSlopeBars)
 input int          InpLongSlopeSmooth = 4;                  // 長期足: 傾きの平滑化サンプル数(直近N個の傾きを平均=スパイク一発を均す)
 input double       InpLongGrayThresh  = 0.03;               // 長期足のグレー閾値(ATR正規化slope。|傾き|<これ=ほぼ水平=グレー=待機)★2026-07-08(_13)変更:0.05→0.03=1波目でグレーを早く抜けさせる
@@ -159,7 +168,7 @@ input double InpM15SlopeTh   = 0.05;                        // ★1分足化(2�
 input bool   InpM15ApplyToSell = false;                     // 2026-07-08: ZigZagフィルター検証のため再度OFF(SELL方向はM15対象外)に戻す。ZigZagが効かないと判断したらtrueに戻す
 
 input group "③ 平均足（決済用の作り）"
-input int            InpHaPrePeriod  = 25;                  // ★2026-09-25: 1→25に再度戻す。9/23に「表示の動きと違う」との理由で1/1に戻していたが、reason_20260925.csvで検証したところエントリーのほぼ全てが数分以内(0〜7分)に平均足反転(reason30)で即決済されており、1/1(無平滑)化が原因と判明。表示側(DokaKotsu_HeikinAshi_1M_4.mq5)をこの決済用平均足バッファ(buf16-19)を直接参照する形に作り直し、表示と決済の二重管理そのものを解消したため、決済側は再び本来の25/25へ戻す
+input int            InpHaPrePeriod  = 25;                  // ★2026-09-25: 1→25に再度戻す。9/23に「表示の動きと違う」との理由で1/1に戻していたが、reason_20260925.csvで検証したところエントリーのほぼ全てが数分以内(0〜7分)に平均足反転(reason30)で即決済されており、1/1(無平滑)化が原因と判明。表示側(DokaKotsu_HeikinAshi_1M_5.mq5)をこの決済用平均足バッファ(buf16-19)を直接参照する形に作り直し、表示と決済の二重管理そのものを解消したため、決済側は再び本来の25/25へ戻す
 input ENUM_MA_METHOD InpHaPreMethod  = MODE_SMMA;           // 決済用平均足:前平滑化の方式
 input int            InpHaPostPeriod = 25;                  // ★2026-09-25: 1→25に再度戻す。上記と同じ理由
 input ENUM_MA_METHOD InpHaPostMethod = MODE_SMMA;           // Ver7: 決済用平均足:後平滑化の方式
@@ -606,10 +615,10 @@ void BackupAndRecreateStateLog(const string why)
    StringReplace(stamp, " ", "_");
    string bak = g_stateLogPath + ".bak_" + stamp;
    if(FileMove(g_stateLogPath, 0, bak, FILE_REWRITE))
-      Print("[indicator_1M_4] 状態ログを退避しました(", why, "): ", bak);
+      Print("[indicator_1M_5] 状態ログを退避しました(", why, "): ", bak);
    else
    {
-      Print("[indicator_1M_4] 状態ログの退避に失敗 err=", GetLastError(), " → 削除して作り直します(", why, ")");
+      Print("[indicator_1M_5] 状態ログの退避に失敗 err=", GetLastError(), " → 削除して作り直します(", why, ")");
       FileDelete(g_stateLogPath);
    }
    g_stateCacheCount = 0;
@@ -618,7 +627,7 @@ void BackupAndRecreateStateLog(const string why)
    ArrayResize(g_stateCacheState, 0);
    g_stateFileHandle = FileOpen(g_stateLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(g_stateFileHandle == INVALID_HANDLE)
-      Print("[indicator_1M_4] 状態ログを開けません err=", GetLastError(), " path=", g_stateLogPath);
+      Print("[indicator_1M_5] 状態ログを開けません err=", GetLastError(), " path=", g_stateLogPath);
 }
 
 //+------------------------------------------------------------------+
@@ -643,7 +652,7 @@ void LoadStateCacheAndOpenHandle()
    {
       g_stateFileHandle = FileOpen(g_stateLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
       if(g_stateFileHandle != INVALID_HANDLE) FileSeek(g_stateFileHandle, 0, SEEK_END);
-      Print("[indicator_1M_4] 状態ログ: 既にキャッシュ済み(", g_stateCacheCount, "件)のため全件再読込をスキップしました");
+      Print("[indicator_1M_5] 状態ログ: 既にキャッシュ済み(", g_stateCacheCount, "件)のため全件再読込をスキップしました");
       return;
    }
 
@@ -670,7 +679,7 @@ void LoadStateCacheAndOpenHandle()
    if(InpResetStateLog && FileIsExist(g_stateLogPath))
    {
       FileDelete(g_stateLogPath);
-      Print("[indicator_1M_4] InpResetStateLog=true のため状態ログを削除しました: ", g_stateLogPath);
+      Print("[indicator_1M_5] InpResetStateLog=true のため状態ログを削除しました: ", g_stateLogPath);
    }
 
    // ★2026-07-11f追加: 起動のたびに古い状態ラベル(DK_MS_)も一旦すべて削除する。
@@ -681,7 +690,7 @@ void LoadStateCacheAndOpenHandle()
    g_stateFileHandle = FileOpen(g_stateLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(g_stateFileHandle == INVALID_HANDLE)
    {
-      Print("[indicator_1M_4] 状態ログを開けません err=", GetLastError(), " path=", g_stateLogPath);
+      Print("[indicator_1M_5] 状態ログを開けません err=", GetLastError(), " path=", g_stateLogPath);
       return;
    }
 
@@ -690,7 +699,7 @@ void LoadStateCacheAndOpenHandle()
    //   (market_state_XAUUSD.raw_PERIOD_M1.csvが7.26GBまで肥大化し、新規チャート添付時に
    //   フリーズする不具合が実機で確認されたための対応。trade_state_logの9/24対策と同一)
    ulong msize = FileSize(g_stateFileHandle);
-   Print("[indicator_1M_4] 状態ログ読込開始: size=", msize, "bytes path=", g_stateLogPath);
+   Print("[indicator_1M_5] 状態ログ読込開始: size=", msize, "bytes path=", g_stateLogPath);
    if(msize > (ulong)InpStateLogMaxMB * 1024 * 1024)
    {
       BackupAndRecreateStateLog(StringFormat("サイズ超過 %.1fMB > 上限%dMB", msize/1048576.0, InpStateLogMaxMB));
@@ -718,7 +727,7 @@ void LoadStateCacheAndOpenHandle()
    ArrayResize(g_stateCacheState, g_stateCacheCount);
    g_stateCacheCap = g_stateCacheCount; // ★2026-07-11h追加: AppendCachedStateの容量追跡と同期(でないと次回追記時に誤って配列を縮小し、読み込み済みデータを破壊してしまう)
    FileSeek(g_stateFileHandle, 0, SEEK_END); // 以後はここに追記していく
-   Print("[indicator_1M_4] 状態ログ読込完了: ", g_stateCacheCount, "件 path=", g_stateLogPath);
+   Print("[indicator_1M_5] 状態ログ読込完了: ", g_stateCacheCount, "件 path=", g_stateLogPath);
 }
 
 //+------------------------------------------------------------------+
@@ -786,10 +795,10 @@ void BackupAndRecreateTradeStateLog(const string why)
    StringReplace(stamp, " ", "_");
    string bak = g_tsLogPath + ".bak_" + stamp;
    if(FileMove(g_tsLogPath, 0, bak, FILE_REWRITE))
-      Print("[indicator_1M_4] 取引状態ログを退避しました(", why, "): ", bak);
+      Print("[indicator_1M_5] 取引状態ログを退避しました(", why, "): ", bak);
    else
    {
-      Print("[indicator_1M_4] 取引状態ログの退避に失敗 err=", GetLastError(), " → 削除して作り直します(", why, ")");
+      Print("[indicator_1M_5] 取引状態ログの退避に失敗 err=", GetLastError(), " → 削除して作り直します(", why, ")");
       FileDelete(g_tsLogPath);
    }
    g_tsCacheCount = 0;
@@ -797,7 +806,7 @@ void BackupAndRecreateTradeStateLog(const string why)
    ArrayResize(g_tsCache, 0);
    g_tsFileHandle = FileOpen(g_tsLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(g_tsFileHandle == INVALID_HANDLE)
-      Print("[indicator_1M_4] 取引状態ログを開けません err=", GetLastError(), " path=", g_tsLogPath);
+      Print("[indicator_1M_5] 取引状態ログを開けません err=", GetLastError(), " path=", g_tsLogPath);
 }
 
 //+------------------------------------------------------------------+
@@ -820,7 +829,7 @@ void LoadTradeStateCacheAndOpenHandle()
    {
       g_tsFileHandle = FileOpen(g_tsLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
       if(g_tsFileHandle != INVALID_HANDLE) FileSeek(g_tsFileHandle, 0, SEEK_END);
-      Print("[indicator_1M_4] 取引状態ログ: 既にキャッシュ済み(", g_tsCacheCount, "件)のため全件再読込をスキップしました");
+      Print("[indicator_1M_5] 取引状態ログ: 既にキャッシュ済み(", g_tsCacheCount, "件)のため全件再読込をスキップしました");
       return;
    }
 
@@ -842,20 +851,20 @@ void LoadTradeStateCacheAndOpenHandle()
    if(InpResetTradeStateLog && FileIsExist(g_tsLogPath))
    {
       FileDelete(g_tsLogPath);
-      Print("[indicator_1M_4] InpResetTradeStateLog=true のため取引状態ログを削除しました: ", g_tsLogPath);
+      Print("[indicator_1M_5] InpResetTradeStateLog=true のため取引状態ログを削除しました: ", g_tsLogPath);
    }
 
    g_tsFileHandle = FileOpen(g_tsLogPath, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
    if(g_tsFileHandle == INVALID_HANDLE)
    {
-      Print("[indicator_1M_4] 取引状態ログを開けません err=", GetLastError(), " path=", g_tsLogPath);
+      Print("[indicator_1M_5] 取引状態ログを開けません err=", GetLastError(), " path=", g_tsLogPath);
       return;
    }
 
    // ★2026-09-24追加(1): サイズ上限チェック。肥大化したログを全件読むとOnInitが終わらず、
    //   同じスレッドで動く全インジ(=チャート全体)が固まるため、読まずに退避する。
    ulong fsize = FileSize(g_tsFileHandle);
-   Print("[indicator_1M_4] 取引状態ログ読込開始: size=", fsize, "bytes path=", g_tsLogPath);
+   Print("[indicator_1M_5] 取引状態ログ読込開始: size=", fsize, "bytes path=", g_tsLogPath);
    if(fsize > (ulong)InpTradeStateLogMaxMB * 1024 * 1024)
    {
       BackupAndRecreateTradeStateLog(StringFormat("サイズ超過 %.1fMB > 上限%dMB", fsize/1048576.0, InpTradeStateLogMaxMB));
@@ -926,10 +935,10 @@ void LoadTradeStateCacheAndOpenHandle()
    ArrayResize(g_tsCache, g_tsCacheCount);
    g_tsCacheCap = g_tsCacheCount; // ★容量追跡を同期(市場状態フリーズと同じ理由=次回追記時の誤縮小防止)
    FileSeek(g_tsFileHandle, 0, SEEK_END);
-   Print("[indicator_1M_4] 取引状態ログ読込完了: ", g_tsCacheCount, "件 (重複/逆順スキップ ", skipped, "行) ",
+   Print("[indicator_1M_5] 取引状態ログ読込完了: ", g_tsCacheCount, "件 (重複/逆順スキップ ", skipped, "行) ",
          (GetMicrosecondCount() - t0) / 1000, "ms path=", g_tsLogPath);
    if(skipped > 0)
-      Print("[indicator_1M_4] 注意: 取引状態ログに重複/逆順行が", skipped, "行ありました(過去の重複書き込みの名残)。次回InpResetTradeStateLog=trueで一度作り直すとファイルが小さくなります");
+      Print("[indicator_1M_5] 注意: 取引状態ログに重複/逆順行が", skipped, "行ありました(過去の重複書き込みの名残)。次回InpResetTradeStateLog=trueで一度作り直すとファイルが小さくなります");
 }
 
 //+------------------------------------------------------------------+
@@ -953,7 +962,7 @@ int OnInit()
    //   (直前のOnDeinitがどんな理由で呼ばれたか)をログに残す。田島さんの実機で短時間に複数回
    //   OnInitが呼ばれている(ZigZag_ATR警告が22:54/22:57/01:15と複数回出ている)ことが判明したため。
    g_onInitCount++;
-   Print("[indicator_1M_4] OnInit実行(", g_onInitCount, "回目) UninitializeReason=", UninitializeReason());
+   Print("[indicator_1M_5] OnInit実行(", g_onInitCount, "回目) UninitializeReason=", UninitializeReason());
    SetIndexBuffer(0, BufEmaNorm,  INDICATOR_DATA);
    SetIndexBuffer(1, BufEmaSpike, INDICATOR_DATA);
    SetIndexBuffer(2, BufWmaUp,    INDICATOR_DATA);
@@ -1101,12 +1110,12 @@ int OnInit()
    {
       hMacdFilter = iCustom(_Symbol, _Period, InpMacdFilterName);
       if(hMacdFilter == INVALID_HANDLE)
-         Print("[indicator_1M_4] 警告: MACDフィルターハンドル生成失敗。DokaKotsu_MACD_Filterがチャートにアタッチされているか確認してください");
+         Print("[indicator_1M_5] 警告: MACDフィルターハンドル生成失敗。DokaKotsu_MACD_Filterがチャートにアタッチされているか確認してください");
       else
-         Print("[indicator_1M_4] MACDフィルターハンドル生成OK: ", InpMacdFilterName);
+         Print("[indicator_1M_5] MACDフィルターハンドル生成OK: ", InpMacdFilterName);
    }
       if(hSpikeFilter == INVALID_HANDLE)
-         Print("[indicator_1M_4] ", InpSpikeFilterName, " のハンドル作成失敗。マーケットステイトのSPは常にfalse扱いになります。");
+         Print("[indicator_1M_5] ", InpSpikeFilterName, " のハンドル作成失敗。マーケットステイトのSPは常にfalse扱いになります。");
    }
    // ★2026-07-06: ZigZag判定ロジック用ATR。ZigZag_ATR.mq5と同一式(ATR×倍率)を本体内で複製し、
    //   バッファ位置ベースの参照による未来参照(リペイント/先読み)を避けるため、判定は自前で再計算する。
@@ -1123,7 +1132,7 @@ int OnInit()
       Print("ハンドル作成失敗");
       return(INIT_FAILED);
    }
-   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu_indicator_1M_4"); // 2026-09-01: DokaKotsu_indicator_17-2.mq5(v17.02)を1分足チャート専用に改造
+   IndicatorSetString(INDICATOR_SHORTNAME, "DokaKotsu_indicator_1M_5"); // 2026-09-01: DokaKotsu_indicator_17-2.mq5(v17.02)を1分足チャート専用に改造
 
    // チャート上の情報ラベル(ファイル名/バージョン)。既定OFF=他表示と重なるため非表示。
    string vname = "DK2_version_label";
@@ -1165,13 +1174,13 @@ int OnInit()
    //   週末かつ変化なしの時のみIndicatorSetIntegerでダミー更新をかけてOnCalculateを再トリガーする。
    //   IndicatorSetIntegerはOnCalculateのみ再起動し、OnInitは発火させない(7月17日フリーズとは無関係)。
    EventSetTimer(30); // 30秒ごとにOnTimerを呼ぶ(週末タイマー用)
-   Print("[indicator_1M_4] EventSetTimer(30) 登録完了");
+   Print("[indicator_1M_5] EventSetTimer(30) 登録完了");
    // ★2026-09-25追加: 決済用平均足の実際の前後平滑化期間を毎回OnInit時に出力。
    //   手動でチャートに貼ったインジと、EAがiCustom()で裏に作るインジとで
    //   値が違う場合に右奥がすぐわかるようにする。田島さんより「決済がおかしい、毎回1分で決済される」
-   //   とのご指摘を受け、同じDokaKotsu_indicator_1M_4が同時に2インスタンス(手動接着分とEAのiCustom分)
+   //   とのご指摘を受け、同じDokaKotsu_indicator_1M_5が同時に2インスタンス(手動接着分とEAのiCustom分)
    //   起動することがJournalで確認できたため追加。
-   Print("[indicator_1M_4] 実際に使う決済用平均足: InpHaPrePeriod=", InpHaPrePeriod, " InpHaPostPeriod=", InpHaPostPeriod,
+   Print("[indicator_1M_5] 実際に使う決済用平均足: InpHaPrePeriod=", InpHaPrePeriod, " InpHaPostPeriod=", InpHaPostPeriod,
          " InpHaPreMethod=", EnumToString(InpHaPreMethod), " InpHaPostMethod=", EnumToString(InpHaPostMethod));
 
    return(INIT_SUCCEEDED);
@@ -1181,7 +1190,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    // ★2026-07-17追加: OnInit繰り返し現象の原因調査用。
-   Print("[indicator_1M_4] OnDeinit実行 reason=", reason, "(REASON_ACCOUNTWINDOWCLOSE=8/REASON_CHARTCLOSE=1/REASON_PARAMETERS=3/REASON_RECOMPILE=4/REASON_REMOVE=0/REASON_TEMPLATE=6等)");
+   Print("[indicator_1M_5] OnDeinit実行 reason=", reason, "(REASON_ACCOUNTWINDOWCLOSE=8/REASON_CHARTCLOSE=1/REASON_PARAMETERS=3/REASON_RECOMPILE=4/REASON_REMOVE=0/REASON_TEMPLATE=6等)");
    // ★背景(BG_)とバージョンラベルは終了時に消さない。
    //   EAの iCustom 解放/再コンパイルでこの OnDeinit が走っても背景を残すため
    //   (背景がEAに連動して消える問題の排除)。古い背景の掃除は OnInit 側で行う。
@@ -1212,7 +1221,7 @@ void OnTimer()
       // rates_totalが増えていない=ティックが来ていない=週末停止中
       // IndicatorSetIntegerでダミー更新をかけてOnCalculateを再トリガー
       IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
-      Print("[indicator_1M_4] OnTimer: 週末タイマー発動 再描画トリガー(rates_total=", currentTotal, ")");
+      Print("[indicator_1M_5] OnTimer: 週末タイマー発動 再描画トリガー(rates_total=", currentTotal, ")");
    }
    g_lastRatesTotal = currentTotal;
 }
