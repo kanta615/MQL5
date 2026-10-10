@@ -1,23 +1,30 @@
 //+------------------------------------------------------------------+
-//|                        DokaKotsu_HeikinAshi_1M_4.mq5            |
+//|                        DokaKotsu_HeikinAshi_1M_5.mq5            |
 //|   決済判定と完全に同じ平均足を、そのままチャートに表示する。     |
-//|   自前では一切計算せず、DokaKotsu_indicator_1M_4.mq5が決済判定に |
+//|   自前では一切計算せず、DokaKotsu_indicator_1M_5.mq5が決済判定に |
 //|   使っている平均足バッファ(BufHaOpen/High/Low/Close、buf16-19)  |
 //|   をiCustom経由で読み取って描画するだけの「窓」になっている。    |
 //|                                                                  |
 //|   これにより「表示は緩やかなのに決済は速い(逆も然り)」といった  |
 //|   表示側と決済側の平滑化の二重管理・食い違いが構造的に起きなく   |
 //|   なる。前平滑化・後平滑化の期間や方式を変えたい場合は、この     |
-//|   ファイルではなくDokaKotsu_indicator_1M_4.mq5側のInpHaPrePeriod |
+//|   ファイルではなくDokaKotsu_indicator_1M_5.mq5側のInpHaPrePeriod |
 //|   /InpHaPostPeriod/InpHaPreMethod/InpHaPostMethodを変更すること。|
 //|   (「ロジックは全部インジ側、他は持たない」という設計方針を     |
 //|   表示側にも適用したもの)                                       |
 //|                                                                  |
-//|   更新日: 2026-09-25                                             |
+//|   更新日: 2026-10-06                                             |
+//|   変更履歴(2026-10-06):                                          |
+//|     - 参照先インジがDokaKotsu_indicator_1M_5へ改名されたのに、    |
+//|       本ファイルの参照先が1M_4のままだったため、ファイル名・     |
+//|       参照先を1M_5に更新(Verを5に)。                            |
+//|     - iCustomの第1引数にfalse(InpPublishSignalGV)を渡し、        |
+//|       表示用の裏インスタンスが矢印GVを公開しないようにした。    |
+//|   ---- 以下は2026-09-25の変更履歴 ----                          |
 //|   変更履歴:                                                      |
-//|     - ファイル名を DokaKotsu_HeikinAshi_1M_4.mq5 に変更(Verを4に)|
+//|     - ファイル名を DokaKotsu_HeikinAshi_1M_5.mq5 に変更(Verを4に)|
 //|     - 前平滑化・後平滑化の自前計算(MAValue等)を全て撤去し、      |
-//|       DokaKotsu_indicator_1M_4.mq5をiCustomで呼び出して          |
+//|       DokaKotsu_indicator_1M_5.mq5をiCustomで呼び出して          |
 //|       決済用平均足バッファ(buf16-19)をそのまま描画する方式に     |
 //|       作り直した。田島さんより「決済がおかしい、毎回1分で決済    |
 //|       される」とのご指摘を受け、9/23に決済側を無平滑(1/1)に      |
@@ -32,7 +39,7 @@
 //|     変更/前後平滑化期間を25に変更/ファイル名を1M_3に変更         |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1M4.00"
+#property version   "1M5.00"
 #property indicator_chart_window
 #property indicator_buffers 5
 #property indicator_plots   1
@@ -45,9 +52,9 @@
 
 //=== 入力 =========================================================
 // ★2026-09-25: 前平滑化・後平滑化の期間/方式は決済側インジ
-//   (DokaKotsu_indicator_1M_4.mq5のInpHaPrePeriod等)が唯一の設定箇所。
+//   (DokaKotsu_indicator_1M_5.mq5のInpHaPrePeriod等)が唯一の設定箇所。
 //   本ファイルには重複させず、参照先インジ名と色だけを入力にしている。
-input string InpDecisionIndicatorName = "DokaKotsu_indicator_1M_4"; // 決済用平均足を読み取る参照先インジ名
+input string InpDecisionIndicatorName = "DokaKotsu_indicator_1M_5"; // 決済用平均足を読み取る参照先インジ名
 input color  InpBullColor   = clrMediumSeaGreen; // 陽線(上昇)の色
 input color  InpBearColor   = clrOrange;         // 陰線(下降)の色
 
@@ -61,7 +68,7 @@ double BufColor[];   // 0=陽線 / 1=陰線
 int g_decHandle = INVALID_HANDLE;   // 決済用インジのハンドル
 bool g_warnedOnce = false;          // ハンドル取得失敗の警告は一度だけ出す
 
-// 決済側のバッファ番号(DokaKotsu_indicator_1M_4.mq5のSetIndexBuffer登録順と一致させる)
+// 決済側のバッファ番号(DokaKotsu_indicator_1M_5.mq5のSetIndexBuffer登録順と一致させる)
 #define DEC_BUF_HA_OPEN  16
 #define DEC_BUF_HA_HIGH  17
 #define DEC_BUF_HA_LOW   18
@@ -86,11 +93,11 @@ int OnInit()
    // ★2026-09-25追加: 決済用インジのハンドルを取得。パラメータは一切渡さず、
    //   決済側インジ自身のinput既定値(InpHaPrePeriod等)をそのまま使わせることで、
    //   平滑化の設定を本当に1箇所(決済側インジ)だけに一元化する。
-   g_decHandle = iCustom(_Symbol, PERIOD_CURRENT, InpDecisionIndicatorName);
+   g_decHandle = iCustom(_Symbol, PERIOD_CURRENT, InpDecisionIndicatorName, false);   // ★2026-10-06: 第1引数=InpPublishSignalGV=false(表示用の裏インスタンスは矢印GVを公開しない)
    if(g_decHandle == INVALID_HANDLE)
    {
-      Print("[HeikinAshi_1M_4] 警告: 決済用インジ(", InpDecisionIndicatorName,
-            ")のハンドル生成失敗。チャートにDokaKotsu_indicator_1M_4がアタッチされているか確認してください。err=", GetLastError());
+      Print("[HeikinAshi_1M_5] 警告: 決済用インジ(", InpDecisionIndicatorName,
+            ")のハンドル生成失敗。チャートにDokaKotsu_indicator_1M_5がアタッチされているか確認してください。err=", GetLastError());
    }
 
    return(INIT_SUCCEEDED);
@@ -121,12 +128,12 @@ int OnCalculate(const int rates_total,
    if(g_decHandle == INVALID_HANDLE)
    {
       // 再アタッチ等で後から有効になるケースもあるため、毎回リトライする。
-      g_decHandle = iCustom(_Symbol, PERIOD_CURRENT, InpDecisionIndicatorName);
+      g_decHandle = iCustom(_Symbol, PERIOD_CURRENT, InpDecisionIndicatorName, false);   // ★2026-10-06: 第1引数=InpPublishSignalGV=false(表示用の裏インスタンスは矢印GVを公開しない)
       if(g_decHandle == INVALID_HANDLE)
       {
          if(!g_warnedOnce)
          {
-            Print("[HeikinAshi_1M_4] 決済用インジが見つからないため表示を保留中です。DokaKotsu_indicator_1M_4をチャートにアタッチしてください。");
+            Print("[HeikinAshi_1M_5] 決済用インジが見つからないため表示を保留中です。DokaKotsu_indicator_1M_5をチャートにアタッチしてください。");
             g_warnedOnce = true;
          }
          return(0);
