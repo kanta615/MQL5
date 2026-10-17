@@ -1,6 +1,13 @@
 ﻿//+------------------------------------------------------------------+
 //|                                       DokaKotsu_Calendar.mq5     |
-//| ★更新日: 2026-09-22 (v7)  ★変更履歴(最新が最上段)                |
+//| ★更新日: 2026-10-12 (v7)  ★変更履歴(最新が最上段)                |
+//|  ・2026-10-12: 取引停止の対象外だが参考表示する米国の連邦祝日        |
+//|    (コロンブスデー/退役軍人の日)の名前を、カレンダー出力ファイル      |
+//|    DokaKotsu_Calendar_Today.txtへ"HOLIDAY_REF|US|名前|..."行で書き出す。|
+//|    「停止はしているが何の休日か分からない」ため、monitor14.pyと       |
+//|    DokaKotsu_monitoring.mq5が日本の祝日(スポーツの日)と並べて表示     |
+//|    できるようにする目的。停止判定(米国休日のルール10種)・GV出力は    |
+//|    変更なし。停止対象の米国休日が同じ日に出ている場合は重複しない。   |
 //|  ・ファイル名/インジ名から"US"を削除                                |
 //|    (DokaKotsu_US_Calendar_v6 → DokaKotsu_Calendar_v7)。            |
 //|    オブジェクト接頭辞 USICAL_ → DKCAL_、Printタグ [US_Calendar] →    |
@@ -78,7 +85,7 @@
 //|           これまで通りこのファイルに一本化されたまま)。              |
 //+------------------------------------------------------------------+
 #property copyright   "Custom Indicator"
-#property version     "1.77"
+#property version     "1.78"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -541,6 +548,26 @@ string GetUSHolidayName(const datetime jstDayStart)
   }
 
 //+------------------------------------------------------------------+
+//| ★2026-10-12追加: 取引停止の対象外だが「参考として表示」する米国の連邦祝日。 |
+//|   コロンブスデー(10月第2月曜)・退役軍人の日(11/11、土→前金/日→翌月)。   |
+//|   米国株式・COMEX金は通常営業のため、EA/本ファイルの停止判定(米国休日)    |
+//|   には含めない(従来方針を維持)。モニター(monitor14.py/DokaKotsu_       |
+//|   monitoring.mq5)が「今日は何の休日か」を表示できるよう名前だけ書き出す。 |
+//+------------------------------------------------------------------+
+string GetUSReferenceHolidayName(const datetime jstDayStart)
+  {
+   MqlDateTime s;
+   TimeToStruct(jstDayStart, s);
+   const int y = s.year;
+   if(s.mon == 10 && s.day == NthWeekdayDay(y, 10, 1, 2))
+      return "コロンブスデー (Columbus Day)";
+   datetime obs = USObservedDate(y, 11, 11, true);   // 退役軍人の日
+   if(obs != 0 && obs == jstDayStart)
+      return "退役軍人の日 (Veterans Day)";
+   return "";
+  }
+
+//+------------------------------------------------------------------+
 //| ★2026-07-20追加: 日本の祝日を判定し、結果をGlobalVariableへ書き出す。 |
 //|   ①ブローカー配信のMT5カレンダー("JP")を動的照会                    |
 //|   ②未配信/未検出ならルール計算(GetJPHolidayName)へフォールバック     |
@@ -915,6 +942,12 @@ void SaveCalendarToFile(datetime jstDayStart, const datetime &evTimes[], const s
      {
       string jline = StringFormat("HOLIDAY_JP|%s|%s", g_jpHolName, IntegerToString(InpJPHolStopHourJST) + ":00〜");
       FileWriteString(h, jline + "\r\n");
+     }
+   //--- ★2026-10-12追加: 参考表示の米国休日(取引停止の対象外)。停止対象の米国休日が既に出ている日は重複させない。
+   string refName = GetUSReferenceHolidayName(jstDayStart);
+   if(refName != "" && !holidayToday)
+     {
+      FileWriteString(h, StringFormat("HOLIDAY_REF|US|%s|取引停止の対象外", refName) + "\r\n");
      }
    FileClose(h);
   }
