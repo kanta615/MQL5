@@ -1,11 +1,30 @@
 ﻿//+------------------------------------------------------------------+
-//|                                        DokaKotsu_monitoring.mq5   |
+//|                                        DokaKotsu_Dashboard.mq5    |
 //|  dokakotu_dashboard_v8_4.html のデザインをMT5チャート上に         |
 //|  再現するパネル（第一段階：機能なし・表示のみ／固定サンプル値）   |
 //|                                                                    |
 //|  【役割分担の絶対ルール】本ファイルは表示専用パネルである。       |
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
+//|                                                                    |
+//|  ■ 修正日: 2026-10-30  修正内容(手動停止の表示を目立たせる)           |
+//|    田島さんご要望。10/30に手動停止(ダッシュボードの■)が一日中入って   |
+//|    いたのに気づけなかったため、①表示テキストを「取引停止中」→         |
+//|    「手動で停止中」に変更、②「EA稼働中」と同じタイミング(約1.6秒周期の |
+//|    位相を共通化)で点滅、③文字サイズを1周り大きく(7→9)した。          |
+//|    「EA停止中」「自動売買OFF」の表示と、停止スイッチの判定は変更なし。 |
+//|                                                                    |
+//|  ■ 修正日: 2026-10-28  修正内容(名前をDokaKotsu_Dashboardへ戻す/発表済み指標を非表示)|
+//|    ①ファイル名を DokaKotsu_monitoring.mq5 → DokaKotsu_Dashboard.mq5   |
+//|      へ戻した(田島さんご指示)。ファイル名・タイトル行・チャート上の    |
+//|      短い名前(INDICATOR_SHORTNAME)・Printのタグを DokaKotsu_Dashboard |
+//|      に統一。名前で本インジを探す他のプログラムがあれば同じ名前で見つかる。|
+//|      表示内容・オブジェクト名の接頭辞(DKD_)・判定は変更なし。           |
+//|    ②「本日の経済指標」で、すでに発表済み(HH:MMが現在のJST時刻より前)の |
+//|      指標を表示しないようにした(終わったFOMC等が残り、これから来る指標 |
+//|      が見えなかった)。新規input InpCalHidePast(既定true、falseで従来)。|
+//|      休日の行は対象外(常に表示)。全部発表済みの日は「本日の指標は       |
+//|      発表済み」と出す。日本時間0時にCalendarのファイルが翌日分へ入れ替わる。|
 //|                                                                    |
 //|  ■ 修正日: 2026-10-12  修正内容(休日を複数表示/経済指標の表示件数拡大) |
 //|    田島さんより「縦の長さが短くて経済指標を複数表示できない。現在は    |
@@ -553,6 +572,7 @@ input int InpPanelY          = 120;  // パネルY位置（上からの距離）
 input int InpPanelWidth      = 320;  // パネル幅＝売買ボタンの横幅に合わせる（環境により微調整）
 input int InpPanelHeightPct  = 110;  // パネル縦幅（%）100=基準の詰まった表示／大きいほど縦に広がる
 input int InpCalMaxRows      = 12;  // ★2026-10-12追加: 「本日の経済指標」欄の最大表示件数(休日の行は別枠で加算。パネルは件数に応じて自動で縦に伸びる)
+input bool InpCalHidePast      = true;   // ★2026-10-28追加: 発表済み(HH:MMが現在のJST時刻より前)の経済指標を表示しない。falseで従来(その日の分を全部表示)
 
 #define PFX "DKD_"
 
@@ -1125,6 +1145,9 @@ void CreatePanel()
    bool   eaAlive  = IsEaAlive();
    bool   algoOk   = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);   // ★2026-09-09追加
    string pauseTxt; color pauseCol;
+   // ★2026-10-30追加: 点滅の位相を1か所にまとめる(約1.6秒周期)。「EA稼働中」と「手動で停止中」が同じタイミングで点滅する。
+   bool blinkOn = (((int)(GetTickCount()/800)) % 2 == 0);
+   int  pauseFont = 7;   // 通常の文字サイズ。「手動で停止中」だけ1周り大きくする
    if(!eaAlive)
      {
       pauseTxt = "EA停止中";
@@ -1137,8 +1160,12 @@ void CreatePanel()
      }
    else if(dashPaused)
      {
-      pauseTxt = "取引停止中";
-      pauseCol = COL_RED;
+      // ★2026-10-30変更: 「取引停止中」→「手動で停止中」。EA稼働中と同じ位相で点滅し、文字を1周り大きく(7→9)して気づきやすくする
+      //   (10/30に手動停止が一日中入っていたことに気づけなかったため)。
+      pauseTxt  = "手動で停止中";
+      pauseCol  = COL_RED;
+      pauseFont = 9;
+      if(!blinkOn) pauseCol = COL_BG;
      }
    else
      {
@@ -1146,10 +1173,9 @@ void CreatePanel()
       pauseCol = COL_GREEN;
       // ★2026-07-15(7回目)追加: ゆっくり点滅(約1.6秒周期)。専用タイマーは追加せず、
       //   既存の1秒更新の中でGetTickCount()の位相だけ見て色を背景色に落とす=負荷を増やさない
-      bool blinkOn = (((int)(GetTickCount()/800)) % 2 == 0);
       if(!blinkOn) pauseCol = COL_BG;
      }
-   CreateLabelText("pausestate",x+pad+8+btnSize*2+16,curY+(int)(9*sc),pauseTxt,pauseCol,7);
+   CreateLabelText("pausestate",x+pad+8+btnSize*2+16,curY+(int)(9*sc)-(pauseFont>7?2:0),pauseTxt,pauseCol,pauseFont);   // ★2026-10-30: 大きい文字は縦位置を2px上げて中央に寄せる
    // ★2026-07-21(5回目)修正: 日付(MM/DD)表示を削除。更新中でない時は何も表示しない(非表示)。
    double totDayHigh = iHigh(_Symbol, PERIOD_D1, 0);
    double totDayLow  = iLow(_Symbol, PERIOD_D1, 0);
@@ -1326,7 +1352,7 @@ void CreatePanel()
             g_lastRbProgress=-1.0;   // ★2026-07-21追加: 作り直したCanvasは必ず初回描画させる
            }
          else
-            Print("DokaKotsu_monitoring: レインボーバーCanvas作成失敗: ",GetLastError());
+            Print("DokaKotsu_Dashboard: レインボーバーCanvas作成失敗: ",GetLastError());
         }
       else
         {
@@ -1466,6 +1492,25 @@ void CreatePanel()
    ArrayCopy(evLabels, g_calLabels);
    ArrayCopy(evHhmm,   g_calHhmm);
    int evCount = g_calCount;
+   int evTotalBeforeFilter = evCount;   // 「発表済みで全部消えた」と「そもそも無い」を区別して、下の空表示の文言を変える
+   // ★2026-10-28追加: 発表済み(HH:MMが現在のJST時刻より前)の指標は出さない。終わったFOMC等が「本日の経済指標」に残り、
+   //   これから来る指標が見えなかった(日本時間0時にCalendarのファイルが翌日分へ入れ替わる)。
+   if(InpCalHidePast && evCount > 0)
+     {
+      datetime jstNow = TimeTradeServer() + ServerToJstShiftDKD();
+      if(jstNow <= 0) jstNow = TimeCurrent() + ServerToJstShiftDKD();
+      MqlDateTime jn; TimeToStruct(jstNow, jn);
+      string nowHm = StringFormat("%02d:%02d", jn.hour, jn.min);
+      int w = 0;
+      for(int ei = 0; ei < evCount; ei++)
+        {
+         if(evHhmm[ei] >= nowHm)   // HH:MM同士の文字列比較。これから来る指標だけ残す
+           { evLabels[w] = evLabels[ei]; evHhmm[w] = evHhmm[ei]; w++; }
+        }
+      ArrayResize(evLabels, w);
+      ArrayResize(evHhmm,   w);
+      evCount = w;
+     }
 
    // ★2026-07-20(2回目)修正: 前回追加した専用の赤/オレンジ行は削除。
    //   日本の祝日は経済指標と同じ並び(白文字・同じセル)の先頭に差し込む方式に変更。
@@ -1515,7 +1560,7 @@ void CreatePanel()
    if(evCount == 0)
      {
       CreateRectLabel("calempty",x+pad,curY,innerW,calH,COL_CELL,COL_CELL,1);
-      CreateLabelText("calemptytxt",x+pad+6,curY+calH/2-7,"本日は該当指標なし",COL_GRAY2,calEmptyFont);
+      CreateLabelText("calemptytxt",x+pad+6,curY+calH/2-7,(evTotalBeforeFilter > 0 ? "本日の指標は発表済み" : "本日は該当指標なし"),COL_GRAY2,calEmptyFont);
       curY+=calH+(int)(14*sc);
      }
    else
@@ -1566,7 +1611,7 @@ void CreatePanel()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   IndicatorSetString(INDICATOR_SHORTNAME,"DokaKotsu_monitoring");
+   IndicatorSetString(INDICATOR_SHORTNAME,"DokaKotsu_Dashboard");
    // 価格チャート（ローソク足・MA等の重ね書きインジケーター）がオブジェクトより
    // 前面に来ないようにする＝パネルが常に最前面に表示される
    ChartSetInteger(0,CHART_FOREGROUND,false);

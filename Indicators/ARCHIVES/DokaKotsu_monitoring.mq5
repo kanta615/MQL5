@@ -7,6 +7,20 @@
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
 //|                                                                    |
+//|  ■ 修正日: 2026-10-12  修正内容(休日を複数表示/経済指標の表示件数拡大) |
+//|    田島さんより「縦の長さが短くて経済指標を複数表示できない。現在は    |
+//|    体育の日だけ。縦を長くして表示領域を広げ、コロンブスデーも表示」。   |
+//|    ①「本日の経済指標」欄の先頭に、休日を日本(スポーツの日)・米国        |
+//|      (停止対象)・米国(参考:コロンブスデー/退役軍人の日=停止対象外)の   |
+//|      順にすべて表示。従来はHOLIDAY_JP行(日本1件)しか読んでおらず、     |
+//|      米国側のHOLIDAY/HOLIDAY_REF行は無視していた。英語のみの米国休日名 |
+//|      は表示用に日本語へ置換(DkdShortHolidayName)。判定はCalendar側。   |
+//|    ②経済指標の最大表示件数を6→12へ拡大(CAL_MAXROWS、新規input        |
+//|      InpCalMaxRows。絶対上限CAL_ROWS_HARD=24)。休日の行は別枠で加算。 |
+//|      背景パネルは件数に応じて自動で縦に伸びる(panelH=内容の高さ)。     |
+//|    ※米国(参考)行の元データは、DokaKotsu_Calendar_v7.mq5(1.78)が       |
+//|      出力するHOLIDAY_REF行。Calendar側も再コンパイルが必要。           |
+//|                                                                  |
 //|  ■ 修正日: 2026-09-22  修正内容                                  |
 //|    ①Calendarインジの改名(DokaKotsu_US_Calendar → DokaKotsu_Calendar)|
 //|      に追従。右上バッジの実在チェック(旧IsUsCalendarPresent →      |
@@ -538,6 +552,7 @@ input int InpPanelX          = 0;    // パネルX位置（左からの距離）
 input int InpPanelY          = 120;  // パネルY位置（上からの距離）＝売買ボタンより下
 input int InpPanelWidth      = 320;  // パネル幅＝売買ボタンの横幅に合わせる（環境により微調整）
 input int InpPanelHeightPct  = 110;  // パネル縦幅（%）100=基準の詰まった表示／大きいほど縦に広がる
+input int InpCalMaxRows      = 12;  // ★2026-10-12追加: 「本日の経済指標」欄の最大表示件数(休日の行は別枠で加算。パネルは件数に応じて自動で縦に伸びる)
 
 #define PFX "DKD_"
 
@@ -758,7 +773,8 @@ int ReadLongDirection()
 
 //--- ★2026-07-07追加: DokaKotsu_Calendar.mq5が書き出す当日の経済指標ファイル(共通)
 #define CAL_FILE "DokaKotsu_Calendar_Today.txt"
-#define CAL_MAXROWS 6   // パネルに表示する最大件数(多すぎて縦に伸びすぎないよう上限)
+#define CAL_MAXROWS 12      // ★2026-10-12変更: 6→12。経済指標の既定の表示件数(複数指標が出る日に6件で切れていた)
+#define CAL_ROWS_HARD 24    // ★2026-10-12追加: 経済指標の表示件数の絶対上限(InpCalMaxRowsはこの値まで)
 
 //+------------------------------------------------------------------+
 //| サーバー時間→JSTのオフセット秒(DokaKotsu_Calendar.mq5と同じ考え方) |
@@ -801,7 +817,7 @@ int ReadTodayEconEvents(string &labels[], string &hhmms[])
         }
       string parts[];
       int cnt = StringSplit(line, '|', parts);
-      if(cnt >= 4 && parts[0] == "EVENT" && dateOk && n < CAL_MAXROWS)
+      if(cnt >= 4 && parts[0] == "EVENT" && dateOk && n < MathMin(MathMax(InpCalMaxRows, 1), CAL_ROWS_HARD))
         {
          ArrayResize(labels, n + 1);
          ArrayResize(hhmms,  n + 1);
@@ -857,6 +873,104 @@ bool ReadTodayJpHoliday(string &name, string &hhmm)
   }
 
 //+------------------------------------------------------------------+
+//| ★2026-10-12追加: 休日名の表示用に短くする。                          |
+//|   ・日本語を含む名前は「 (」以降(英語併記)を落とす                    |
+//|     例: コロンブスデー (Columbus Day) → コロンブスデー              |
+//|   ・英語のみの米国休日名(MT5カレンダー由来)は日本語名へ置換          |
+//|   表示用の置換だけで、休日の判定ロジックは持たない。                   |
+//+------------------------------------------------------------------+
+string DkdShortHolidayName(const string raw)
+  {
+   string n = raw;
+   StringTrimLeft(n);
+   StringTrimRight(n);
+   bool hasJa = false;
+   for(int i = 0; i < StringLen(n); i++)
+     {
+      if(StringGetCharacter(n, i) >= 0x3000) { hasJa = true; break; }
+     }
+   if(hasJa)
+     {
+      int p = StringFind(n, " (");
+      if(p > 0) n = StringSubstr(n, 0, p);
+      return n;
+     }
+   string low = n;
+   StringToLower(low);
+   if(StringFind(low, "columbus")      >= 0) return "コロンブスデー";
+   if(StringFind(low, "veterans")      >= 0) return "退役軍人の日";
+   if(StringFind(low, "labor day")     >= 0) return "レイバーデー";
+   if(StringFind(low, "memorial")      >= 0) return "メモリアルデー";
+   if(StringFind(low, "independence")  >= 0) return "独立記念日";
+   if(StringFind(low, "thanksgiving")  >= 0) return "感謝祭";
+   if(StringFind(low, "christmas")     >= 0) return "クリスマス";
+   if(StringFind(low, "new year")      >= 0) return "元日";
+   if(StringFind(low, "martin luther") >= 0) return "マーティン・ルーサー・キング・デー";
+   if(StringFind(low, "presidents")    >= 0) return "大統領の日";
+   if(StringFind(low, "washington")    >= 0) return "大統領の日";
+   if(StringFind(low, "juneteenth")    >= 0) return "ジューンティーンス";
+   if(StringFind(low, "good friday")   >= 0) return "聖金曜日";
+   return n;
+  }
+
+//+------------------------------------------------------------------+
+//| ★2026-10-12追加: 米国の休日をCAL_FILEから読む(日本の祝日と並べて表示する)。|
+//|   HOLIDAY      行=米国休日(取引停止の対象) → 名前と停止開始JST時刻       |
+//|   HOLIDAY_REF  行=参考の米国休日(コロンブスデー/退役軍人の日)         |
+//|                   → 「停止対象外」と表示                              |
+//|   判定はCalendarインジ側のみ。ここでは書き出された名前を読むだけ。       |
+//+------------------------------------------------------------------+
+int ReadTodayExtraHolidays(string &names[], string &times[])
+  {
+   ArrayResize(names, 0);
+   ArrayResize(times, 0);
+   int h = FileOpen(CAL_FILE, FILE_READ|FILE_TXT|FILE_UNICODE|FILE_COMMON);
+   if(h == INVALID_HANDLE)
+      return 0;
+   int shift = ServerToJstShiftDKD();
+   datetime jstNow = TimeTradeServer() + shift;
+   if(jstNow <= 0) jstNow = TimeCurrent() + shift;
+   string todayTag = TimeToString(jstNow, TIME_DATE);
+   bool dateOk = false;
+   int  n = 0;
+   while(!FileIsEnding(h))
+     {
+      string line = FileReadString(h);
+      if(line == "")
+         continue;
+      if(StringFind(line, "DATE=") == 0)
+        {
+         dateOk = (StringSubstr(line, 5) == todayTag);
+         continue;
+        }
+      if(!dateOk)
+         continue;
+      string parts[];
+      int cnt = StringSplit(line, '|', parts);
+      if(cnt >= 7 && parts[0] == "HOLIDAY" && parts[1] == "1")
+        {
+         datetime st = (datetime)StringToInteger(parts[5]);   // 停止開始(サーバー時刻)
+         string nm = DkdShortHolidayName(parts[4]);
+         ArrayResize(names, n + 1);
+         ArrayResize(times, n + 1);
+         names[n] = (nm == "米国休日") ? nm : ("米国 " + nm);
+         times[n] = (st > 0) ? (TimeToString(st + shift, TIME_MINUTES) + "〜") : "停止対象";
+         n++;
+        }
+      else if(cnt >= 3 && parts[0] == "HOLIDAY_REF")
+        {
+         ArrayResize(names, n + 1);
+         ArrayResize(times, n + 1);
+         names[n] = "米国(参考) " + DkdShortHolidayName(parts[2]);
+         times[n] = "停止対象外";
+         n++;
+        }
+     }
+   FileClose(h);
+   return n;
+  }
+
+//+------------------------------------------------------------------+
 //| ★2026-07-21追加: 経済指標ファイル(CAL_FILE)の60秒キャッシュ。      |
 //|   従来は毎秒2回ファイルを開いて読んでいた(負荷+黒点滅の一因)。     |
 //|   内容は日次でしか変わらないため60秒ごとの再読込で十分。           |
@@ -870,6 +984,9 @@ string g_calHhmm[];
 bool   g_calJpFound    = false;
 string g_calJpName     = "";
 string g_calJpHhmm     = "";
+int    g_calExtraCount = 0;      // ★2026-10-12追加: 米国休日(停止対象/参考)の行数
+string g_calExtraNames[];
+string g_calExtraTimes[];
 
 void RefreshCalendarCacheIfStale()
   {
@@ -879,6 +996,7 @@ void RefreshCalendarCacheIfStale()
    g_calCacheMs   = nowMs;
    g_calCount   = ReadTodayEconEvents(g_calLabels, g_calHhmm);
    g_calJpFound = ReadTodayJpHoliday(g_calJpName, g_calJpHhmm);
+   g_calExtraCount = ReadTodayExtraHolidays(g_calExtraNames, g_calExtraTimes);   // ★2026-10-12追加
   }
 
 
@@ -1354,18 +1472,41 @@ void CreatePanel()
    //   判定ロジックはDokaKotsu_Calendar.mq5(v6)側のみに存在し、ここでは
    //   同ファイルが監査用CAL_FILEへ書き出す"HOLIDAY_JP"行の名前を読むだけ。
    string jpHolName = g_calJpName, jpHolHhmm = g_calJpHhmm;   // ★2026-07-21変更: 60秒キャッシュから取得
+   // ★2026-10-12変更: 休日を「日本」「米国(停止対象)」「米国(参考)」の順にすべて、経済指標の先頭へ差し込む。
+   //   従来は日本の祝日1件だけで、米国側(コロンブスデー等)は読んでいなかった。判定ロジックはCalendarインジ側のみ。
+   string hlLabels[], hlTimes[];
+   int    hlCount = 0;
    if(g_calJpFound && jpHolName != "")
      {
-      ArrayResize(evLabels, evCount + 1);
-      ArrayResize(evHhmm,   evCount + 1);
-      for(int i = evCount; i > 0; i--)
+      ArrayResize(hlLabels, hlCount + 1);
+      ArrayResize(hlTimes,  hlCount + 1);
+      hlLabels[hlCount] = "日本 " + DkdShortHolidayName(jpHolName);
+      hlTimes[hlCount]  = jpHolHhmm;
+      hlCount++;
+     }
+   for(int xi = 0; xi < g_calExtraCount; xi++)
+     {
+      ArrayResize(hlLabels, hlCount + 1);
+      ArrayResize(hlTimes,  hlCount + 1);
+      hlLabels[hlCount] = g_calExtraNames[xi];
+      hlTimes[hlCount]  = g_calExtraTimes[xi];
+      hlCount++;
+     }
+   if(hlCount > 0)
+     {
+      ArrayResize(evLabels, evCount + hlCount);
+      ArrayResize(evHhmm,   evCount + hlCount);
+      for(int i = evCount - 1; i >= 0; i--)
         {
-         evLabels[i] = evLabels[i-1];
-         evHhmm[i]   = evHhmm[i-1];
+         evLabels[i + hlCount] = evLabels[i];
+         evHhmm[i + hlCount]   = evHhmm[i];
         }
-      evLabels[0] = jpHolName;
-      evHhmm[0]   = jpHolHhmm;
-      evCount++;
+      for(int k = 0; k < hlCount; k++)
+        {
+         evLabels[k] = hlLabels[k];
+         evHhmm[k]   = hlTimes[k];
+        }
+      evCount += hlCount;
      }
    // ★前バージョンで作成していたオブジェクトが残っていた場合の掃除
    ObjectDelete(0, PFX+"jphol");
@@ -1395,7 +1536,7 @@ void CreatePanel()
 
    //--- ★2026-07-07追加: 前回より件数が減った場合、余った行オブジェクトが
    //    消えずに前日分の文字列のまま残ってしまうのを防ぐ(掃除)
-   for(int i=evCount; i<CAL_MAXROWS; i++)
+   for(int i=evCount; i<CAL_ROWS_HARD+6; i++)
      {
       ObjectDelete(0, PFX+"calrow"+IntegerToString(i));
       ObjectDelete(0, PFX+"cal"+IntegerToString(i)+"a");
