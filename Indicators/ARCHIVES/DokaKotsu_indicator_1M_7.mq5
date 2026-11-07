@@ -5,6 +5,64 @@
 //|   確認できたため、1M_7として名称変更したもの。                     |
 //|   最終更新: 2026-10-22(2回目)                                     |
 //|                                                                  |
+//|  ■ 修正日: 2026-11-04  修正内容(長期足の期間を時間帯で切り替え)         |
+//|    田島さんご指示「長期足を、21時から25時までは400、それ以外は700」。       |
+//|     ・JST 21:00 〜 25:00(=翌1:00の手前)の足は、長期足の期間を400本、      |
+//|       それ以外の時間の足は700本(InpLongPeriod。変更なし)で計算する。       |
+//|     ・種類(InpLongType=SMA)は共通。足の時刻はJST(EAが公開するGV           |
+//|       DK_EA_JSTOFF があればその時差、無ければサーバーとGMTの差から求める)。|
+//|     ・長期足の傾き(色・方向の判定)と傾きの角度は、その足の時間帯の系列    |
+//|       だけで計算する(400本と700本を混ぜた差を取らない)ので、切替の境目で  |
+//|       傾きが跳ねない。画面に出る長期足の線は、境目(21:00と1:00)で段差に    |
+//|       なる(400本の値と700本の値が違うため)。                              |
+//|    新規input: InpUseLongNight(true)/InpLongNightStartHourJST(21)/         |
+//|    InpLongNightEndHourJST(25=翌1時)/InpLongPeriodNight(400)。               |
+//|    falseで従来(常に InpLongPeriod)。EAの裏のコピーとチャートのコピーで     |
+//|    4つの設定を揃えること(起動ログの「長期足」の行で確認できる)。          |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-03(2回目)  修正内容(RR不足の規則・reason56)           |
+//|    田島さんご指示「RR100%未満はエントリーしない」。                       |
+//|     ・入る方向の最良RRを使う: 買いの矢印=買い候補の中で最高のRR、          |
+//|       売りの矢印=売り候補の中で最高のRR。それが InpMinRrEntry(既定100%)   |
+//|       未満なら矢印を出さない = reason56。0で無効。                          |
+//|     ・RRは、同じチャートの Dokakotsu_Risk-Reward Ratio が公開するGV         |
+//|       YDS_RB(買い)/YDS_RS(売り)。足が確定した時点の値(EAが入る瞬間の価格で |
+//|       はない)。候補なし(-1)・インジ未稼働(GVが無い/InpRrStaleSecより古い)の |
+//|       時は止めない。                                                       |
+//|     ・VolatilityStop(reason54)と同じ方式: ライブ足=いまの値 / 1本前=確定時  |
+//|       の値 / それより古い足=判定不能のため適用しない(過去の矢印は変わらない)。|
+//|    新規input: InpMinRrEntry(100)/InpRrStaleSec(120)。EAの理由文に56を追加。 |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-03  修正内容(一目スパンのルール・reason55)          |
+//|    田島さんご指示。スパンA(転換線と基準線の平均)・スパンB(期間の高安   |
+//|    の中値)を、先へずらした「いま表示されている値」で判定する:        |
+//|     ・スパンAが上でスパンBが下 = スパン下降 / スパンBが上でスパンAが下 |
+//|       = スパン上昇(田島さんの定義どおり)。                            |
+//|     ・スパン上昇でエントリーできるのは、値がスパンBより上の時だけ。   |
+//|     ・スパン下降でエントリーできるのは、値がスパンBより下の時だけ。   |
+//|     ・それ以外(AとBが同値を含む)はエントリー禁止 = reason55。        |
+//|       計算できる足が無い間(履歴の先頭付近)は判定しない(許可)。         |
+//|    数値は5分足で見る前提で×5: 転換45・基準130・スパンB260・先行130。  |
+//|    新規input: InpUseSpanRule/InpSpanTenkan/InpSpanKijun/InpSpanB/      |
+//|    InpSpanShift/InpSpanDirOnly(true=さらにスパン上昇は買いのみ・下降は  |
+//|    売りのみ。既定false)。                                              |
+//|    一目の値はこのインジのバッファ64(スパンA)・65(スパンB)・66(先行本数)|
+//|    に保管(先へずらす前の値)。表示用 Dokakotsu_SpanB.mq5 は数値を持たず、|
+//|    チャート上のこのインジから引用し、色・太さだけを設定する。          |
+//|    EAの理由文にreason55を追加。取引状態ログに過去の矢印が残っている場合|
+//|    は、InpResetTradeStateLog=trueで1回だけ作り直すと、過去の足にも      |
+//|    ルールが反映される。                                                |
+//|                                                                  |
+//|  ■ 修正日: 2026-10-30(3回目)  修正内容(中期足SMAの期間 15→14)         |
+//|    田島さんご指示「15分足のWT SMAの値を15から14に変更」。              |
+//|    「② 15分足」グループの InpM15Period を 15→14 に変更               |
+//|    (InpM15Type=WT_SMA・InpMidTF=PERIOD_M5のまま=M5の14本SMA)。        |
+//|    【以前の値】15。戻す場合は InpM15Period に 15 を入れて再コンパイル。  |
+//|    影響: 中期足の線・傾き・グレー判定(reason19)がわずかに速くなる。      |
+//|    InpM15SlopeTh=0.05は変更なし。判定ロジックの変更なし。              |
+//|    チャートのプロパティに保存値(15)がある場合は14へ合わせる(EAの裏の    |
+//|    コピーは既定値=14を使うため、ずれる)。                              |
+//|                                                                  |
 //|  ■ 修正日: 2026-10-30(2回目)  修正内容(バージョン7へ改名)          |
 //|    田島さんご指示「最新版に差し替え、バージョンを6から7へ」。        |
 //|    ファイル名を DokaKotsu_indicator_1M_6.mq5 から                    |
@@ -240,11 +298,11 @@
 #property version   "1M7.00"
 
 //=== バージョン情報(最新版か確認用) ==============================
-#define DK_VERSION   "Ver1.0(_1M_7_v1)"
-#define DK_BUILD     "2026-10-30(2回目) ★バージョン7へ改名。ファイル名をDokaKotsu_indicator_1M_6.mq5からDokaKotsu_indicator_1M_7.mq5へ変更し、ファイル名・#property version(1M7.00)・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_7に統一。DK_VERSIONの番号は_1M_7_v1へリセット。中身は1M_6の最新(v5=中期足SMA・平均足15/10)のまま。判定・描画ロジックの変更なし。 / 2026-10-30 ★①中期足MAの種類 InpM15Type を WT_KAMA→WT_SMA に変更(InpM15Periodは15を確認=変更なし。中期足の時間足はM5のまま)。②決済用平均足の後平滑化 InpHaPostPeriod を 15→10 に変更(前InpHaPrePeriodは15のまま=前15/後10)。【以前の値: InpM15Type=WT_KAMA / InpHaPostPeriod=15(その前25・戻し候補20)】戻す場合は既定値を書き換えて再コンパイル。影響=中期足グレー判定(reason19)・平均足反転決済(reason30)・平均足ゲート(reason52)。判定ロジックの変更なし。DK_VERSIONを_1M_6_v5へ。 / 2026-10-28(3回目) ★起動時の診断ログ(実際に使う決済用平均足)の行に、長期足の種類・期間(InpLongType/InpLongPeriod)を追加。チャート上のコピーとEAの裏のコピーで値が揃っているかをJournalで確認するため。ログのみで判定の変更なし。DK_VERSIONを_1M_6_v4へ。 / 2026-10-28(2回目) ★長期足の期間 InpLongPeriod を 800→700 に変更(種類はWT_SMAのまま。田島さんご指示)。【以前の値: 800(2026-10-02〜)/その前: 900】戻す場合は800。影響=長期足の線・傾き・グレー判定。傾きの設定(InpLongSlopeStep=25・InpLongGrayThresh=0.03)は変更なし。DK_VERSIONを_1M_6_v3へ。 / 2026-10-28 ★決済用平均足の平滑化 InpHaPrePeriod/InpHaPostPeriod を 25→15 に変更(テスト期間として15で試す。田島さんご指示)。【以前の値: 25/25 / 中間の戻し候補: 20/20】結果が悪ければ25または20へ戻す(既定値を書き換えて再コンパイル、チャートのプロパティに保存値があればそちらも合わせる)。影響範囲=決済(reason30)・エントリーの平均足ゲート(reason52)・平均足の表示。判定ロジックの変更なし。DK_VERSIONを_1M_6_v2へ。 / 2026-10-26(2回目) ★バージョン6へ改名。ファイル名をDokaKotsu_indicator_1M_5.mq5からDokaKotsu_indicator_1M_6.mq5へ変更し、ファイル名・#property version(1M6.00)・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_6に統一。DK_VERSIONの番号は_1M_6_v1へリセット。判定・描画ロジックの変更なし。 / 2026-10-26 ★EAの取引時間スケジュール(GV DK_EA_SCHED_<magic>=許可する時のビット)を読み、許可されていない時間の足は過去の再計算を含めて矢印を出さない(仮想ポジ・ロックを消費しない)。EA未稼働/GV無し/無効時は従来どおり。DK_VERSIONを_1M_5_v7へ。 / 2026-10-22(2回目) ★中期足(5分足)グレー禁止の取りこぼし防止。禁止判定がライブ(形成中)の中期足だけを見ていたため、足の途中の一瞬の点灯で矢印が出て確定足として固定され、確定後はグレーなのに入っていた(10/22 12:17・16:50のSELL)。新規input InpMidGrayNeedConfirmed(既定true)で、ライブ足と直前に確定した中期足の両方がエントリー方向の時だけ通す(reason19)。中期足が方向に変わった直後は最大5分遅れる。DK_VERSIONを_1M_5_v6へ。 / 2026-10-22 ★エントリー禁止条件を3つ追加。①長期足グレーも禁止(InpBlockLongGray、reason22)②旧15分足を中期足InpMidTF(既定M5)に変更しグレー/逆なら禁止(InpUseMidGrayBlock、reason19)③VolatilityStopの禁止マーク表示中は禁止(GV DK_VSTOP_<チャートID>、InpUseVolStopGate、reason54)。DK_VERSIONを_1M_5_v5へ。 / 2026-10-16 ★表示が消える(時間足切替で復活)原因の見える化と自動復旧。OnCalculate先頭の中核ハンドル7個のCopyBufferが失敗すると黙ってreturnしていたため、Journalに止まった理由(ハンドル名/エラー/BarsCalculated/継続秒数)を出し、2分以上続けば中核ハンドルを作り直して自動復旧、復帰時にも記録。判定・描画ロジックの変更なし。DK_VERSIONを_1M_5_v4へ。 / 2026-10-08 ★EAが新規エントリーを止めている間は矢印を出さない(reason53)。10/9のCSVで、EAが入れないオセアニア停止中(04:25)に出たBUY矢印が仮想ポジとトレンド1回分のロックを消費し、EAが入れる07:00以降14:45まで559本ずっと保有中(コード20)のまま新規矢印が出なかった問題への対応。EAが公開するGV(DK_EA_BLOCK_<magic>/DK_EA_BLOCK_TS_<magic>=全停止理由と生存、DK_EA_OCEANIA_<magic>/DK_EA_JSTOFF_<magic>=オセアニア停止時間帯とJST時差)を読み、ライブ足と直近確定足はEAの全停止状態、それより古い足(再計算)はオセアニア停止時間帯のみで判定。新規input InpUseEaBlockGate(既定true)/InpEaBlockStaleSec(120)。EA未稼働・GVが古い場合は従来どおり。DK_VERSIONを_1M_5_v3へ。 / 2026-10-06 ★EAのエントリーをチャートの矢印に完全一致させるため、直近の確定足の矢印をGV(DK_SIG_<チャートID>)へ公開する機能を追加(新規input InpPublishSignalGV、既定true、先頭の入力)。EA/表示用インジのiCustom裏インスタンスはfalseで公開しない。判定ロジックの変更なし。DK_VERSIONを_1M_5_v2へ。 / 2026-10-02(2回目) ★長期足の種類をKAMA→SMA、期間を900→800に変更(田島さんご指示)。あわせてファイル名をDokaKotsu_indicator_1M_4.mq5からDokaKotsu_indicator_1M_5.mq5へ改名し、ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_5に統一。DK_VERSIONの番号は_1M_5_v1へリセット。 / 2026-10-02 ★新規チャートでのフリーズを修正。market_state_XAUUSD.raw_PERIOD_M1.csvが7.26GBまで肥大化し(trade_state_logで9/24に起きたのと同じ重複書き込み系の不具合)、起動のたびに全件読込しようとしてディスクI/O待ちでフリーズしていた(CPU使用率は低いまま)。新規input InpStateLogMaxMB(既定50)とBackupAndRecreateStateLog()を追加し、trade_state_logと同じ「読込前にサイズ確認→上限超過なら読まず退避」の仕組みをmarket_state_logにも適用。既存の常時稼働チャートはメモリキャッシュ済みのため再読込自体をスキップしており無関係、新規チャート添付時だけ発生していた点とも一致。書き込み側の重複の根本原因は未調査。DK_VERSIONを_1M_5_v7へ。 / 2026-09-28 ★エントリー直後の即決済を防止。新規input InpUseHaEntryGate(既定true)を追加し、allowLogicCに「決済用平均足(haColor)がエントリー方向と一致」条件を追加、見送り理由はreason52。原因は、ロジックCが平均足を見ずにエントリーする一方、決済は平均足反転のみのため、25/25で遅い平均足が逆向きの間に入ると入った瞬間に決済条件が成立していたこと(9/28 20:13 SELL、平均足上昇のまま入り同分に決済)。DK_VERSIONを_1M_5_v6へ。 / 2026-09-25(3回目) ★決済✖マーカーの表示位置バグを修正。田島さんより「決済の✖がおかしなところで表示されている」(ea3.JPG、強い上昇トレンド中に✖が実際のローソク足から大きく下に離れた位置に出ていた)とのご指摘。原因は、決済マーカー(BufExit)のY座標にsma2[i](SMA20を二重平滑した、背景色判定用の緩やかな基準線)をそのまま使っていたため。sma2は判定用の内部基準線であって実際の価格ではないので、強いトレンド中は価格から大きく乖離した位置に取り残され、✖が実勢価格から離れた場所に表示されてしまっていた。決済ロジック(どのタイミングで決済するか・reasonコード)自体は一切変更しておらず、あくまで表示位置だけの修正。BufBuy/BufSellの矢印がlow[i]-atr[i]*0.5 / high[i]+atr[i]*0.5(ローソク足のすぐ外側)で表示されているのと同じ流儀に合わせ、ロング決済(pos==1側、8箇所)はlow[i]-atr[i]*0.5、ショート決済(pos==-1側、8箇所)はhigh[i]+atr[i]*0.5に変更。これで決済✖は常にその足の実際のローソクのすぐ外側に表示されるようになる。 / 2026-09-25(2回目) ★決済用平均足の実際の期間をJournalに出力する診断ログを追加。田島さんより「EAは再起動している、チャートは変わらず正しい」とのご報告を受け、実機のJournal(22:14頃、9/24分)を確認したところ、同じDokaKotsu_indicator_1M_5が同時刻帯に2インスタンス起動していた(①手動でチャートに貼った方、②EAがiCustom()で裏に自動生成した方。②は市場状態ログ・取引状態ログのオープンに失敗(err=5004、①が既にファイルを掴んでいるため)しつつも起動は継続)。実際の決済判定(reason30)は②側のBufHaState(buf14)を読んでいるため、①のプロパティ画面で25/25が見えていても、②側が別の値(例えば古い.ex5の既定値のまま)を使っていれば表示と決済が食い違う。この仮説を実機で確認できるよう、OnInit完了時にInpHaPrePeriod/InpHaPostPeriod/InpHaPreMethod/InpHaPostMethodの実際の値をPrintするようにした。ターミナル再起動後、両インスタンスのこのログ行を見比べれば、どちらが原因かすぐに切り分けられる。判定ロジック自体の変更はなし。 / 2026-09-25 ★決済用平均足(HA)の前後平滑化を1/1→25/25へ再度戻した。田島さんより「決済がおかしい、毎回1分で決済される」とのご指摘を受け、reason_20260925.csvを検証したところ全エントリーが0〜7分以内に「決済(平均足反転)」(reason30)で決済されており、9/23に1/1(無平滑)へ戻した変更が直接の原因と判明(9/23時点のメモにも「本当の原因は表示側インジが25/25に追従できていないだけの可能性が高い」との注記あり、対症療法だった)。今回は対症療法を繰り返さず、表示側インジDokaKotsu_HeikinAshi_1M_5.mq5(旧HeikinAshi_1M_3.mq5から改名)を、この決済判定が使っている平均足バッファ(BufHaOpen/High/Low/Close、buf16-19)をiCustom経由でそのまま参照して描画する方式に作り直し、表示と決済が別々に平滑化されて食い違う二重管理の構造自体を解消した(詳細はDokaKotsu_HeikinAshi_1M_5.mq5側のヘッダー参照)。これによりチャートに見えている平均足の動き=決済判定に使われている平均足の動きが常に完全一致するようになったため、決済側は本来の25/25(SMMA)へ安心して戻せる。DK_VERSIONを_1M_5_v3へ。 / 2026-09-24 ★インジ投入時のMT5画面フリーズを修正。田島さんの実機ログ(21:50:46)で「状態ログ読込完了」の直後に止まり、次に出るはずの「取引状態ログ読込完了」「EventSetTimer(30) 登録完了」が一切出ていなかったことから、OnInit内の取引状態ログ全件読込(LoadTradeStateCacheAndOpenHandle)が終わっていないと特定。MT5では同じ銘柄のインジは全て1スレッドで動くため、ここが終わらないとjsttime_sub等も含めチャート全体が固まる。原因の連鎖: ①2026-09-22の列追加(12→14列)後に旧形式ログが残ると列がずれて時刻が不正値になり昇順が崩れる/チャート左側に古い履歴が後から読み込まれると古い時刻が末尾に追記されて同じく昇順が崩れる→②バイナリサーチ(FindTradeStateCache)が全て失敗→③全確定足が毎ティック「未記録」扱いで再追記→④ログが肥大化→⑤次回起動時の全件読込でフリーズ。対策: (a)AppendTradeStateCacheに昇順維持ガードを追加(末尾以下の時刻は追記しない)、(b)読込前にファイルサイズを確認し新規input InpTradeStateLogMaxMB(既定50MB)超過なら読まずに.bak_日時へ退避して作り直す、(c)1行ずつ14列かを検証し旧形式・破損なら同様に退避、(d)読込時も重複・逆順行を捨てる。読込開始時のサイズと所要時間(ms)もログに出す。売買判定ロジック自体の変更はなし。相場状態ログ(market_state)側にも同じ種類の昇順崩れリスクがあるが、今回は1箇所ずつの方針で取引状態ログのみ対応。DK_VERSIONを_1M_5_v2へ。 / 2026-09-23 ★決済用平均足(HA)の前後平滑化を25/25→1/1(無平滑)へ戻した。田島さんより実際のチャート画像(heikinnashi.JPG)の提供を受けて確認したところ、01:48前後で画面に表示されているローソクは数本おきに頻繁に色が変わっており、25/25の二段SMMA平滑化(本来ならごく緩やかにしか反転しないはず)とは明らかに反転の速さが違っていた。コード上、決済色(haColor)は表示用バッファ(BufHaOpen/Close等)と全く同じ計算式・同じ値を使っており、この指標ファイル単体では表示と判定が食い違う要因は無い(haColor[i]=(c>=o)?0:1; // 決済判定の色=表示色と同一、とコード上も明記済み)。したがって食い違いの原因は、チャートに実際に乗っている平均足の描画(DokaKotsu_HeikinAshi_1M_5.mq5、本セッションには未アップロード)側が、2026-09-15の変更(1→25)に追従できておらず、古い平滑化のまま、またはそもそも別の描画(MT5標準ローソク/標準Heikin Ashi等)になっている可能性が高いと判断した。田島さんのご指示「決済をインジに合わせて、見たとおりにしたい」を受け、実際に画面に見えている(頻繁に反転する)動きに合わせる方向で、2026-09-10と同じ「MT5標準Heiken Ashiと同じ無平滑」の設定(InpHaPrePeriod/InpHaPostPeriod=1/1)に戻した。★注意: この前後平滑化(1/25間)は2026-09-10→2026-09-15→2026-09-23で既に3回変更されており、根本原因は表示側インジ(DokaKotsu_HeikinAshi_1M_5.mq5)の平滑化設定が本ファイルと連動して管理されていないことにある。表示側インジのファイルを次回共有いただければ、値を都度往復させる対症療法ではなく、本ファイルのBufHaOpen/High/Low/Close(バッファ16-19)を表示側が直接参照する形に揃え、平滑化の二重管理自体を解消したい。 / 2026-09-22 ★決済後の同方向再エントリーを5分間禁止するルール(reason51)を新設。田島さんより「連続でエントリーしたが、間隔のルールはあるか」→実データ調査(reason_20260922.csv,18:32〜18:34)で、SELLエントリー→同じ1分足内で平均足反転(reason30)により即決済→次の1分足でまた同方向のSELLエントリー、という決済を挟んだ連続エントリーが3回連続で発生していたことが判明。既存の再エントリーロック(reason14=WMA/reason50=長期足)はいずれも「グレーに戻るまで」という条件のため、決済自体がグレー無しの平均足反転で起きた今回のケースは対象外だった。また別途、決済後にInpCooldownBars(既定25本=25分)だけ新規を止める既存の仕組み(cdLeft、reason15)も発見したが、これはロジックA(旧・全フィルター判定)専用の変数で、実際の発注判定に使われているロジックC(allowLogicC、InpEntryMode=ENTRY_MODE_C_WMA)には元々配線されておらず、現状は「決済後は新規を止める」という制御が実質的に効いていなかった(この既存の仕組み自体は今回変更していない)。今回は田島さんのご指示「5分間は禁止するルールを加える」に対応するため、cdLeftとは別に、直近決済の方向と時刻を保持する新変数lastExitDir/lastExitTimeを新設し、同方向への再エントリーだけを決済から5分間(InpExitDirLockSec、既定300秒)禁止するようallowLogicCに追加した(新規input InpUseExitDirLock、既定true)。時間ベースの判定のため、チャート足種を変えても常に実時間5分を維持する。ロジックA(allow)・ロジックB(allowBBKC)は対象外(現在使われていないため)。lastExitDir/lastExitTimeは取引状態フリーズ(TradeStateRecord)にも追加したため、trade_state_logの列数が変わり旧形式のログファイルは読めなくなる(2026-09-10bのlongSegHadEntry追加時と同様)。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-18(2回目) ★バージョン4へ改名。田島さんご指示「バージョンを4にあげてもらえますか」により、ファイル名をDokaKotsu_indicator_1M_3.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_5に統一。直前(同日1回目)の見送り理由コード表示バグ修正を含め、コード上の判定ロジック自体の変更はなし(改名のみ)。 / 2026-09-18 ★見送り理由コード表示の重大バグを修正。田島さんより「矢印が出ているのに入らない」「長期足が十分でないのに矢印が出るのはおかしい」とのご指摘を受けて調査したところ、実際の発注判定(allowFinal)は常に現在の既定ロジックC(allowLogicC)の結果で正しく、矢印(BufBuy/BufSell)もallowFinal=trueの時しか描画されていなかった(ここにバグはなかった)。バグがあったのは表示側で、ロジックC自身にそもそも存在しない条件(reason25「長期が後発」はロジックA専用で、ロジックCはlongOppose=明確な逆行のみチェックし、点灯順序は一切見ない)であっても、ロジックA側の判定で先にBufReasonへ書き込まれた値が上書きされずそのまま見送り理由コードとして表示され続けていた。allowLogicCの評価順序(ライブM15不一致19→直前確定足未点灯24→再エントリーロック14→長期再エントリーロック50→スパイクADX禁止39→長期逆行22→タイミングずれ41→スクイーズ42)と完全に一致する形でreason上書きチェーンを新設し、以後は見送り理由コードが常にロジックCの実際のブロック理由を正しく反映する。 / 2026-09-16 ★MA急反転(reason31)/MAグレー化(reason32)の保険フォールバック決済を全面停止。田島さんより重ねてのご指摘(「MAグレー化決済をやめてほしいと何度も言っている」)を受け、新規input InpUseMaFallbackExit(既定false)を追加し、pos==1/pos==-1双方・InpHaPriorityExit有無の両分岐にある計4箇所のwmaDir系フォールバック(31/32)全てをこのフラグでガード。既定falseの間は決済が平均足反転(reason30)・スパイク面積(33)・ウェーブクロス救済(34)のみで判断されるようになり、WMAが平均足より先に崩れても平均足の反転を待つ(=平均足の前後平滑化25/25がそのまま決済タイミングに反映される)。true に戻せば従来の保険付き動作に復帰可能。 / 2026-09-15 ★ファイル名をDokaKotsu_indicator_1M_2.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。決済用平均足(HA)の前後平滑化をInpHaPrePeriod/InpHaPostPeriod共に1→25に変更(1分足の生の平均足から、表示用インジDokaKotsu_HeikinAshi_1M_5.mq5と同じ前後平滑化25/25の滑らかな平均足へ)。haPreEff/haPostEffはinput値をそのまま使う実装のため、このinput変更のみで決済判定(haColor)・表示(BufHaOpen等)双方にそのまま反映される(コード変更不要)。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_2]→[indicator_1M_7])を全て1M_5に統一。 / 2026-09-10b ★長期足(longDir)版の再エントリーロックを新設(reason50)。田島さんより「長期足で、色が同じ間は1回しか入れないルールを加えられますか」とのご依頼。既存のWMA(短期)版の再エントリーロック(segHadEntry/trendDir、グレーを挟むまで同方向の再エントリーを禁止・reason14)と全く同じ考え方を、longDir(長期足の色)にも適用。longSegHadEntry/longTrendDirを新設し、長期足が色に入ったら方向を記録、グレー(0)に戻るまで同方向の新規エントリーを禁止する。ロジックA(旧チェーン/allow)・ロジックB(allowBBKC)・ロジックC(allowLogicC=実際に発注判定に使われている経路)全てに反映。新規input InpUseLongSegLock(既定true)でON/OFF可能。確定足フリーズ用の取引状態ログ(TradeStateRecord)にも2フィールド(longSegHadEntry/longTrendDir)を追加したため、列数が変わり旧形式のログファイルは読めなくなる。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-10 ★決済用平均足(HA)の前後平滑化を撤廃(InpHaPrePeriod 8→1・InpHaPostPeriod 10→1)。田島さんより「MT5標準の平均足インジと見た目を合わせたい。数値を小さくすると表示用インジの見え方も変わるので、いつまでも一致しない」とのご指摘。9/1(8回目)の×5スケーリング撤回で1分足の生データは使うようになっていたが、9/1(10回目)で表示用インジ(DokaKotsu_HeikinAshi_1m)に合わせるため前後平滑化(SMMA)を4/5→8/10に強めており、これがSMMAの遅延特性により4〜5本の反応遅れとして再発していた。MAValue()はperiod<=1で平滑なし(生値)を返す仕様のため、前後とも1にすることでMT5標準Heiken Ashiと同じ無平滑の計算式に一致させた。表示用HAインジ(DokaKotsu_HeikinAshi_1m.mq5)側も同じ値(1/1)に合わせて初めて見た目が一致する点に注意(未対応・別途要修正)。 / 2026-09-08 ★【1分足限定・一時措置】田島さんご指示により、エントリー最終ゲートをVolScoreからMACD色一致に一時差し替え可能にした。新規input InpUseMacdFinalGate(既定false)。trueにすると、BUY方向はMACD上昇(緑)・SELL方向はMACD下降(赤)の時だけ通過し、グレーまたは逆色ならreason49で見送り(既存のreason44 MACD免除ゲートで使っているDokaKotsu_MACD_Filterのハンドル/バッファをそのまま流用)。このフラグがtrueの間はInpUseVolScoreGateの値に関わらずVolScoreゲート(reason43)を完全にスキップし、二重ゲート化を避けている。reason46は5分足系列でEA側ReasonTextが既に別の意味(MACD免除エントリー)で使用済みだったため、番号衝突を避けreason49を新規採番。VolScore自体のコード・input(InpUseVolScoreGate/InpVolScoreLowPct)は削除せず温存しており、InpUseMacdFinalGate=falseに戻せばいつでも元のVolScoreゲートに復帰できる。 / 2026-09-01(10回目) ★決済用平均足(HA)の平滑化期間を変更。InpHaPrePeriod(4→8)・InpHaPostPeriod(5→10)。田島さんご指示により、単独計算版の表示用インジDokaKotsu_HeikinAshi_1m.mq5(同じく前平滑化8・後平滑化10に変更済み)と同じ値に統一。8回目の対応で×5スケーリングは既に撤回済み(haPreEff/haPostEffはinput値をそのまま使用)のため、このinput変更がそのまま決済判定の平均足に反映される。 / 2026-09-01(9回目) ★ADX関連の5倍スケーリングを撤回。InpAdxPeriod(60→12)・InpAdxEmaPeriod(250→50)・InpAdxConfirmBars(10→2)。田島さんより実際のログ(2026.09.02 21:33〜23:53)で「22時にエントリーしていない」とのご指摘。ログを確認すると、平均足・長期足・15分足・波はすべて上昇一致していたにもかかわらず、21:33〜22:44の1時間以上「ADXグレー」の状態が続き、スパイクADX禁止(reason39)がずっと解除されず、ADXがようやく「上昇」に転換した22:45にBUYが発生していた。原因はADX自体の計算期間(InpAdxPeriod/InpAdxEmaPeriod)と、非グレー確認の連続本数(InpAdxConfirmBars)の両方を5倍スケーリングしていたため。特にInpAdxConfirmBarsはWMAのInpColorConfirmBarsと同じ「連続確認本数」系の設定で、以前(2026-08-27)にWMA側で5倍化は逆効果と判明済みだった教訓を、ここにも適用すべきだった。3つとも17-2本来の値に戻した。 / 2026-09-01(8回目) ★決済用平均足(HA)の×5スケーリングを撤回。田島さんより「決済が5本くらい遅い、1分足の平均足で決済してほしい」とのご指摘。従来はInpHaPrePeriod/InpHaPostPeriod(4/5)を内部で×5(20本/25本)にして、5分足版と同じ「実時間の長さ」の平滑化を保つ設計だったが、これがまさに決済の遅れの原因だった。haPreEff/haPostEffをInpHaPrePeriod/InpHaPostPeriodそのまま(素の4本/5本)に変更し、1分足チャート本来の速さの平均足で決済するようにした。 / 2026-09-01(7回目) ★ファイル名をDokaKotsu_indicator_1M_1.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。田島さんより、6回目のスパイク面積スケーリング修正後、動作が良くなったとのご確認をいただいたため、区切りとして1M_5に改名。ファイル名・#property version(1M2.01)・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_1]→[indicator_1M_7])を全て1M_5に統一。コード上の判定ロジック自体の変更はなし(6回目までの内容がそのまま1M_5の初期状態)。 / 2026-09-01(6回目) ★スパイク面積閾値を5倍スケーリング。InpSpikeEntryThresh(300→1500)・InpSpikeAreaThresh(1000→5000)。田島さんが「スパイクは出ていないのにreason39(スパイクADX禁止)が出る」とご指摘。スパイク面積は「価格変動幅×スイングにかかったバー本数」で計算されており、1分足は5分足より同じ実時間により多くのバーが対応する(5倍)ため、面積の値も約5倍水増しされ、閾値300を実質超えやすくなっていた(=普通の値動きがスパイク扱いされていた)。他の本数ベースinputと同じ5倍スケーリング方針をここにも適用。 / 2026-09-01(5回目・バグ修正) ★見送り理由コードの表示バグを修正。田島さんの41.JPGで、InpUseM15Filter=falseを確認済み(スクリーンショットで裏付け)なのに見送り理由コード=41が表示され続けていた件を調査。原因: reason41を表示する行(if(timingMissed) BufReason[i]=41.0;)が、allowLogicC側のInpUseM15Filterバイパスを反映しておらず、実際のブロック理由が別(スパイクADX禁止・長期足・スクイーズ等)であっても、timingMissedの生の値がtrueなら無条件に41と表示してしまっていた。if(InpUseM15Filter && timingMissed) BufReason[i]=41.0;に修正し、InpUseM15Filter=falseの時は表示上もM15を理由にしないようにした。これで今後は実際のブロック理由が正しく表示されるはず。 / 2026-09-01(4回目) ★M15フィルターを一時無効化(InpUseM15Filter=true→false)。田島さんより「M1ローリング(緩め)も本物M15(遅すぎ)もダメ、17-2の方が良い、たぶん15分に問題がある」とのご指摘を受け、まずWMAのみでの矢印頻度を確認する目的。InpUseM15Filterは元々一部の分岐(reason19)しかガードしておらず、ロジックC(allowLogicC、実際に使われているENTRY_MODE_C_WMA)内の m15dCur==d 直接比較とtimingMissedラッチはこのフラグと無関係に常時適用される作りだったため、両方とも (!InpUseM15Filter || ...) で無効化できるよう修正。これでInpUseM15Filter=falseにすると、M15関連の判定(reason41相当)は完全にスキップされ、WMA・スパイク禁止・長期足・スクイーズ等の他条件のみでエントリー判定される。"
+#define DK_VERSION   "Ver1.0(_1M_7_v5)"
+#define DK_BUILD     "2026-11-04 ★長期足の期間を時間帯で切替(InpUseLongNight): JST 21:00〜25:00(翌1時)は400本、それ以外は700本(InpLongPeriod)。種類(SMA)は共通。切替の境目で長期足の線が段差になるが、傾き(色・方向の判定)は各足の時間帯の系列だけで計算するので境目で乱れない。DK_VERSIONを_1M_7_v5へ。 / 2026-11-03(2回目) ★RR不足の規則を追加(InpMinRrEntry・reason56)。入る方向(買い=買い候補/売り=売り候補)の最良RRが基準(既定100%)未満なら矢印を出さない。RRは同じチャートの Dokakotsu_Risk-Reward Ratio がGV(YDS_RB/YDS_RS)で公開した足確定時の値。候補なし・インジ未稼働(GVが無い/古い)は止めない。DK_VERSIONを_1M_7_v4へ。 / 2026-11-03 ★一目均衡表スパンのルールを追加(InpUseSpanRule・reason55)。スパンA(転換線と基準線の平均)・スパンB(期間の高安中値)を先へずらした「いま表示されている値」で、スパン上昇(B>A)は値がスパンBより上の時だけ、スパン下降(A>B)は値がスパンBより下の時だけエントリー可、それ以外は禁止。数値は5分足で見る前提で×5(転換45/基準130/B260/先行130)。値はこの本体インジのバッファ64〜66に保管し、表示用Dokakotsu_SpanB.mq5は色だけ設定して引用する。DK_VERSIONを_1M_7_v3へ。 / 2026-10-30(3回目) ★中期足SMAの期間 InpM15Period を 15→14 に変更(田島さんご指示。InpM15Type=WT_SMA・中期足の時間足M5のまま)。【以前の値: 15】戻す場合は15。影響=中期足の線・傾き・グレー判定(reason19)がわずかに速くなる。判定ロジックの変更なし。DK_VERSIONを_1M_7_v2へ。 / 2026-10-30(2回目) ★バージョン7へ改名。ファイル名をDokaKotsu_indicator_1M_6.mq5からDokaKotsu_indicator_1M_7.mq5へ変更し、ファイル名・#property version(1M7.00)・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_7に統一。DK_VERSIONの番号は_1M_7_v1へリセット。中身は1M_6の最新(v5=中期足SMA・平均足15/10)のまま。判定・描画ロジックの変更なし。 / 2026-10-30 ★①中期足MAの種類 InpM15Type を WT_KAMA→WT_SMA に変更(InpM15Periodは15を確認=変更なし。中期足の時間足はM5のまま)。②決済用平均足の後平滑化 InpHaPostPeriod を 15→10 に変更(前InpHaPrePeriodは15のまま=前15/後10)。【以前の値: InpM15Type=WT_KAMA / InpHaPostPeriod=15(その前25・戻し候補20)】戻す場合は既定値を書き換えて再コンパイル。影響=中期足グレー判定(reason19)・平均足反転決済(reason30)・平均足ゲート(reason52)。判定ロジックの変更なし。DK_VERSIONを_1M_6_v5へ。 / 2026-10-28(3回目) ★起動時の診断ログ(実際に使う決済用平均足)の行に、長期足の種類・期間(InpLongType/InpLongPeriod)を追加。チャート上のコピーとEAの裏のコピーで値が揃っているかをJournalで確認するため。ログのみで判定の変更なし。DK_VERSIONを_1M_6_v4へ。 / 2026-10-28(2回目) ★長期足の期間 InpLongPeriod を 800→700 に変更(種類はWT_SMAのまま。田島さんご指示)。【以前の値: 800(2026-10-02〜)/その前: 900】戻す場合は800。影響=長期足の線・傾き・グレー判定。傾きの設定(InpLongSlopeStep=25・InpLongGrayThresh=0.03)は変更なし。DK_VERSIONを_1M_6_v3へ。 / 2026-10-28 ★決済用平均足の平滑化 InpHaPrePeriod/InpHaPostPeriod を 25→15 に変更(テスト期間として15で試す。田島さんご指示)。【以前の値: 25/25 / 中間の戻し候補: 20/20】結果が悪ければ25または20へ戻す(既定値を書き換えて再コンパイル、チャートのプロパティに保存値があればそちらも合わせる)。影響範囲=決済(reason30)・エントリーの平均足ゲート(reason52)・平均足の表示。判定ロジックの変更なし。DK_VERSIONを_1M_6_v2へ。 / 2026-10-26(2回目) ★バージョン6へ改名。ファイル名をDokaKotsu_indicator_1M_5.mq5からDokaKotsu_indicator_1M_6.mq5へ変更し、ファイル名・#property version(1M6.00)・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_6に統一。DK_VERSIONの番号は_1M_6_v1へリセット。判定・描画ロジックの変更なし。 / 2026-10-26 ★EAの取引時間スケジュール(GV DK_EA_SCHED_<magic>=許可する時のビット)を読み、許可されていない時間の足は過去の再計算を含めて矢印を出さない(仮想ポジ・ロックを消費しない)。EA未稼働/GV無し/無効時は従来どおり。DK_VERSIONを_1M_5_v7へ。 / 2026-10-22(2回目) ★中期足(5分足)グレー禁止の取りこぼし防止。禁止判定がライブ(形成中)の中期足だけを見ていたため、足の途中の一瞬の点灯で矢印が出て確定足として固定され、確定後はグレーなのに入っていた(10/22 12:17・16:50のSELL)。新規input InpMidGrayNeedConfirmed(既定true)で、ライブ足と直前に確定した中期足の両方がエントリー方向の時だけ通す(reason19)。中期足が方向に変わった直後は最大5分遅れる。DK_VERSIONを_1M_5_v6へ。 / 2026-10-22 ★エントリー禁止条件を3つ追加。①長期足グレーも禁止(InpBlockLongGray、reason22)②旧15分足を中期足InpMidTF(既定M5)に変更しグレー/逆なら禁止(InpUseMidGrayBlock、reason19)③VolatilityStopの禁止マーク表示中は禁止(GV DK_VSTOP_<チャートID>、InpUseVolStopGate、reason54)。DK_VERSIONを_1M_5_v5へ。 / 2026-10-16 ★表示が消える(時間足切替で復活)原因の見える化と自動復旧。OnCalculate先頭の中核ハンドル7個のCopyBufferが失敗すると黙ってreturnしていたため、Journalに止まった理由(ハンドル名/エラー/BarsCalculated/継続秒数)を出し、2分以上続けば中核ハンドルを作り直して自動復旧、復帰時にも記録。判定・描画ロジックの変更なし。DK_VERSIONを_1M_5_v4へ。 / 2026-10-08 ★EAが新規エントリーを止めている間は矢印を出さない(reason53)。10/9のCSVで、EAが入れないオセアニア停止中(04:25)に出たBUY矢印が仮想ポジとトレンド1回分のロックを消費し、EAが入れる07:00以降14:45まで559本ずっと保有中(コード20)のまま新規矢印が出なかった問題への対応。EAが公開するGV(DK_EA_BLOCK_<magic>/DK_EA_BLOCK_TS_<magic>=全停止理由と生存、DK_EA_OCEANIA_<magic>/DK_EA_JSTOFF_<magic>=オセアニア停止時間帯とJST時差)を読み、ライブ足と直近確定足はEAの全停止状態、それより古い足(再計算)はオセアニア停止時間帯のみで判定。新規input InpUseEaBlockGate(既定true)/InpEaBlockStaleSec(120)。EA未稼働・GVが古い場合は従来どおり。DK_VERSIONを_1M_5_v3へ。 / 2026-10-06 ★EAのエントリーをチャートの矢印に完全一致させるため、直近の確定足の矢印をGV(DK_SIG_<チャートID>)へ公開する機能を追加(新規input InpPublishSignalGV、既定true、先頭の入力)。EA/表示用インジのiCustom裏インスタンスはfalseで公開しない。判定ロジックの変更なし。DK_VERSIONを_1M_5_v2へ。 / 2026-10-02(2回目) ★長期足の種類をKAMA→SMA、期間を900→800に変更(田島さんご指示)。あわせてファイル名をDokaKotsu_indicator_1M_4.mq5からDokaKotsu_indicator_1M_5.mq5へ改名し、ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_5に統一。DK_VERSIONの番号は_1M_5_v1へリセット。 / 2026-10-02 ★新規チャートでのフリーズを修正。market_state_XAUUSD.raw_PERIOD_M1.csvが7.26GBまで肥大化し(trade_state_logで9/24に起きたのと同じ重複書き込み系の不具合)、起動のたびに全件読込しようとしてディスクI/O待ちでフリーズしていた(CPU使用率は低いまま)。新規input InpStateLogMaxMB(既定50)とBackupAndRecreateStateLog()を追加し、trade_state_logと同じ「読込前にサイズ確認→上限超過なら読まず退避」の仕組みをmarket_state_logにも適用。既存の常時稼働チャートはメモリキャッシュ済みのため再読込自体をスキップしており無関係、新規チャート添付時だけ発生していた点とも一致。書き込み側の重複の根本原因は未調査。DK_VERSIONを_1M_5_v7へ。 / 2026-09-28 ★エントリー直後の即決済を防止。新規input InpUseHaEntryGate(既定true)を追加し、allowLogicCに「決済用平均足(haColor)がエントリー方向と一致」条件を追加、見送り理由はreason52。原因は、ロジックCが平均足を見ずにエントリーする一方、決済は平均足反転のみのため、25/25で遅い平均足が逆向きの間に入ると入った瞬間に決済条件が成立していたこと(9/28 20:13 SELL、平均足上昇のまま入り同分に決済)。DK_VERSIONを_1M_5_v6へ。 / 2026-09-25(3回目) ★決済✖マーカーの表示位置バグを修正。田島さんより「決済の✖がおかしなところで表示されている」(ea3.JPG、強い上昇トレンド中に✖が実際のローソク足から大きく下に離れた位置に出ていた)とのご指摘。原因は、決済マーカー(BufExit)のY座標にsma2[i](SMA20を二重平滑した、背景色判定用の緩やかな基準線)をそのまま使っていたため。sma2は判定用の内部基準線であって実際の価格ではないので、強いトレンド中は価格から大きく乖離した位置に取り残され、✖が実勢価格から離れた場所に表示されてしまっていた。決済ロジック(どのタイミングで決済するか・reasonコード)自体は一切変更しておらず、あくまで表示位置だけの修正。BufBuy/BufSellの矢印がlow[i]-atr[i]*0.5 / high[i]+atr[i]*0.5(ローソク足のすぐ外側)で表示されているのと同じ流儀に合わせ、ロング決済(pos==1側、8箇所)はlow[i]-atr[i]*0.5、ショート決済(pos==-1側、8箇所)はhigh[i]+atr[i]*0.5に変更。これで決済✖は常にその足の実際のローソクのすぐ外側に表示されるようになる。 / 2026-09-25(2回目) ★決済用平均足の実際の期間をJournalに出力する診断ログを追加。田島さんより「EAは再起動している、チャートは変わらず正しい」とのご報告を受け、実機のJournal(22:14頃、9/24分)を確認したところ、同じDokaKotsu_indicator_1M_5が同時刻帯に2インスタンス起動していた(①手動でチャートに貼った方、②EAがiCustom()で裏に自動生成した方。②は市場状態ログ・取引状態ログのオープンに失敗(err=5004、①が既にファイルを掴んでいるため)しつつも起動は継続)。実際の決済判定(reason30)は②側のBufHaState(buf14)を読んでいるため、①のプロパティ画面で25/25が見えていても、②側が別の値(例えば古い.ex5の既定値のまま)を使っていれば表示と決済が食い違う。この仮説を実機で確認できるよう、OnInit完了時にInpHaPrePeriod/InpHaPostPeriod/InpHaPreMethod/InpHaPostMethodの実際の値をPrintするようにした。ターミナル再起動後、両インスタンスのこのログ行を見比べれば、どちらが原因かすぐに切り分けられる。判定ロジック自体の変更はなし。 / 2026-09-25 ★決済用平均足(HA)の前後平滑化を1/1→25/25へ再度戻した。田島さんより「決済がおかしい、毎回1分で決済される」とのご指摘を受け、reason_20260925.csvを検証したところ全エントリーが0〜7分以内に「決済(平均足反転)」(reason30)で決済されており、9/23に1/1(無平滑)へ戻した変更が直接の原因と判明(9/23時点のメモにも「本当の原因は表示側インジが25/25に追従できていないだけの可能性が高い」との注記あり、対症療法だった)。今回は対症療法を繰り返さず、表示側インジDokaKotsu_HeikinAshi_1M_5.mq5(旧HeikinAshi_1M_3.mq5から改名)を、この決済判定が使っている平均足バッファ(BufHaOpen/High/Low/Close、buf16-19)をiCustom経由でそのまま参照して描画する方式に作り直し、表示と決済が別々に平滑化されて食い違う二重管理の構造自体を解消した(詳細はDokaKotsu_HeikinAshi_1M_5.mq5側のヘッダー参照)。これによりチャートに見えている平均足の動き=決済判定に使われている平均足の動きが常に完全一致するようになったため、決済側は本来の25/25(SMMA)へ安心して戻せる。DK_VERSIONを_1M_5_v3へ。 / 2026-09-24 ★インジ投入時のMT5画面フリーズを修正。田島さんの実機ログ(21:50:46)で「状態ログ読込完了」の直後に止まり、次に出るはずの「取引状態ログ読込完了」「EventSetTimer(30) 登録完了」が一切出ていなかったことから、OnInit内の取引状態ログ全件読込(LoadTradeStateCacheAndOpenHandle)が終わっていないと特定。MT5では同じ銘柄のインジは全て1スレッドで動くため、ここが終わらないとjsttime_sub等も含めチャート全体が固まる。原因の連鎖: ①2026-09-22の列追加(12→14列)後に旧形式ログが残ると列がずれて時刻が不正値になり昇順が崩れる/チャート左側に古い履歴が後から読み込まれると古い時刻が末尾に追記されて同じく昇順が崩れる→②バイナリサーチ(FindTradeStateCache)が全て失敗→③全確定足が毎ティック「未記録」扱いで再追記→④ログが肥大化→⑤次回起動時の全件読込でフリーズ。対策: (a)AppendTradeStateCacheに昇順維持ガードを追加(末尾以下の時刻は追記しない)、(b)読込前にファイルサイズを確認し新規input InpTradeStateLogMaxMB(既定50MB)超過なら読まずに.bak_日時へ退避して作り直す、(c)1行ずつ14列かを検証し旧形式・破損なら同様に退避、(d)読込時も重複・逆順行を捨てる。読込開始時のサイズと所要時間(ms)もログに出す。売買判定ロジック自体の変更はなし。相場状態ログ(market_state)側にも同じ種類の昇順崩れリスクがあるが、今回は1箇所ずつの方針で取引状態ログのみ対応。DK_VERSIONを_1M_5_v2へ。 / 2026-09-23 ★決済用平均足(HA)の前後平滑化を25/25→1/1(無平滑)へ戻した。田島さんより実際のチャート画像(heikinnashi.JPG)の提供を受けて確認したところ、01:48前後で画面に表示されているローソクは数本おきに頻繁に色が変わっており、25/25の二段SMMA平滑化(本来ならごく緩やかにしか反転しないはず)とは明らかに反転の速さが違っていた。コード上、決済色(haColor)は表示用バッファ(BufHaOpen/Close等)と全く同じ計算式・同じ値を使っており、この指標ファイル単体では表示と判定が食い違う要因は無い(haColor[i]=(c>=o)?0:1; // 決済判定の色=表示色と同一、とコード上も明記済み)。したがって食い違いの原因は、チャートに実際に乗っている平均足の描画(DokaKotsu_HeikinAshi_1M_5.mq5、本セッションには未アップロード)側が、2026-09-15の変更(1→25)に追従できておらず、古い平滑化のまま、またはそもそも別の描画(MT5標準ローソク/標準Heikin Ashi等)になっている可能性が高いと判断した。田島さんのご指示「決済をインジに合わせて、見たとおりにしたい」を受け、実際に画面に見えている(頻繁に反転する)動きに合わせる方向で、2026-09-10と同じ「MT5標準Heiken Ashiと同じ無平滑」の設定(InpHaPrePeriod/InpHaPostPeriod=1/1)に戻した。★注意: この前後平滑化(1/25間)は2026-09-10→2026-09-15→2026-09-23で既に3回変更されており、根本原因は表示側インジ(DokaKotsu_HeikinAshi_1M_5.mq5)の平滑化設定が本ファイルと連動して管理されていないことにある。表示側インジのファイルを次回共有いただければ、値を都度往復させる対症療法ではなく、本ファイルのBufHaOpen/High/Low/Close(バッファ16-19)を表示側が直接参照する形に揃え、平滑化の二重管理自体を解消したい。 / 2026-09-22 ★決済後の同方向再エントリーを5分間禁止するルール(reason51)を新設。田島さんより「連続でエントリーしたが、間隔のルールはあるか」→実データ調査(reason_20260922.csv,18:32〜18:34)で、SELLエントリー→同じ1分足内で平均足反転(reason30)により即決済→次の1分足でまた同方向のSELLエントリー、という決済を挟んだ連続エントリーが3回連続で発生していたことが判明。既存の再エントリーロック(reason14=WMA/reason50=長期足)はいずれも「グレーに戻るまで」という条件のため、決済自体がグレー無しの平均足反転で起きた今回のケースは対象外だった。また別途、決済後にInpCooldownBars(既定25本=25分)だけ新規を止める既存の仕組み(cdLeft、reason15)も発見したが、これはロジックA(旧・全フィルター判定)専用の変数で、実際の発注判定に使われているロジックC(allowLogicC、InpEntryMode=ENTRY_MODE_C_WMA)には元々配線されておらず、現状は「決済後は新規を止める」という制御が実質的に効いていなかった(この既存の仕組み自体は今回変更していない)。今回は田島さんのご指示「5分間は禁止するルールを加える」に対応するため、cdLeftとは別に、直近決済の方向と時刻を保持する新変数lastExitDir/lastExitTimeを新設し、同方向への再エントリーだけを決済から5分間(InpExitDirLockSec、既定300秒)禁止するようallowLogicCに追加した(新規input InpUseExitDirLock、既定true)。時間ベースの判定のため、チャート足種を変えても常に実時間5分を維持する。ロジックA(allow)・ロジックB(allowBBKC)は対象外(現在使われていないため)。lastExitDir/lastExitTimeは取引状態フリーズ(TradeStateRecord)にも追加したため、trade_state_logの列数が変わり旧形式のログファイルは読めなくなる(2026-09-10bのlongSegHadEntry追加時と同様)。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-18(2回目) ★バージョン4へ改名。田島さんご指示「バージョンを4にあげてもらえますか」により、ファイル名をDokaKotsu_indicator_1M_3.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグを全て1M_5に統一。直前(同日1回目)の見送り理由コード表示バグ修正を含め、コード上の判定ロジック自体の変更はなし(改名のみ)。 / 2026-09-18 ★見送り理由コード表示の重大バグを修正。田島さんより「矢印が出ているのに入らない」「長期足が十分でないのに矢印が出るのはおかしい」とのご指摘を受けて調査したところ、実際の発注判定(allowFinal)は常に現在の既定ロジックC(allowLogicC)の結果で正しく、矢印(BufBuy/BufSell)もallowFinal=trueの時しか描画されていなかった(ここにバグはなかった)。バグがあったのは表示側で、ロジックC自身にそもそも存在しない条件(reason25「長期が後発」はロジックA専用で、ロジックCはlongOppose=明確な逆行のみチェックし、点灯順序は一切見ない)であっても、ロジックA側の判定で先にBufReasonへ書き込まれた値が上書きされずそのまま見送り理由コードとして表示され続けていた。allowLogicCの評価順序(ライブM15不一致19→直前確定足未点灯24→再エントリーロック14→長期再エントリーロック50→スパイクADX禁止39→長期逆行22→タイミングずれ41→スクイーズ42)と完全に一致する形でreason上書きチェーンを新設し、以後は見送り理由コードが常にロジックCの実際のブロック理由を正しく反映する。 / 2026-09-16 ★MA急反転(reason31)/MAグレー化(reason32)の保険フォールバック決済を全面停止。田島さんより重ねてのご指摘(「MAグレー化決済をやめてほしいと何度も言っている」)を受け、新規input InpUseMaFallbackExit(既定false)を追加し、pos==1/pos==-1双方・InpHaPriorityExit有無の両分岐にある計4箇所のwmaDir系フォールバック(31/32)全てをこのフラグでガード。既定falseの間は決済が平均足反転(reason30)・スパイク面積(33)・ウェーブクロス救済(34)のみで判断されるようになり、WMAが平均足より先に崩れても平均足の反転を待つ(=平均足の前後平滑化25/25がそのまま決済タイミングに反映される)。true に戻せば従来の保険付き動作に復帰可能。 / 2026-09-15 ★ファイル名をDokaKotsu_indicator_1M_2.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。決済用平均足(HA)の前後平滑化をInpHaPrePeriod/InpHaPostPeriod共に1→25に変更(1分足の生の平均足から、表示用インジDokaKotsu_HeikinAshi_1M_5.mq5と同じ前後平滑化25/25の滑らかな平均足へ)。haPreEff/haPostEffはinput値をそのまま使う実装のため、このinput変更のみで決済判定(haColor)・表示(BufHaOpen等)双方にそのまま反映される(コード変更不要)。ファイル名・#property version・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_2]→[indicator_1M_7])を全て1M_5に統一。 / 2026-09-10b ★長期足(longDir)版の再エントリーロックを新設(reason50)。田島さんより「長期足で、色が同じ間は1回しか入れないルールを加えられますか」とのご依頼。既存のWMA(短期)版の再エントリーロック(segHadEntry/trendDir、グレーを挟むまで同方向の再エントリーを禁止・reason14)と全く同じ考え方を、longDir(長期足の色)にも適用。longSegHadEntry/longTrendDirを新設し、長期足が色に入ったら方向を記録、グレー(0)に戻るまで同方向の新規エントリーを禁止する。ロジックA(旧チェーン/allow)・ロジックB(allowBBKC)・ロジックC(allowLogicC=実際に発注判定に使われている経路)全てに反映。新規input InpUseLongSegLock(既定true)でON/OFF可能。確定足フリーズ用の取引状態ログ(TradeStateRecord)にも2フィールド(longSegHadEntry/longTrendDir)を追加したため、列数が変わり旧形式のログファイルは読めなくなる。反映後は一度だけInpResetTradeStateLog=trueで起動し、旧ログを破棄してから通常運用(false)に戻すこと。 / 2026-09-10 ★決済用平均足(HA)の前後平滑化を撤廃(InpHaPrePeriod 8→1・InpHaPostPeriod 10→1)。田島さんより「MT5標準の平均足インジと見た目を合わせたい。数値を小さくすると表示用インジの見え方も変わるので、いつまでも一致しない」とのご指摘。9/1(8回目)の×5スケーリング撤回で1分足の生データは使うようになっていたが、9/1(10回目)で表示用インジ(DokaKotsu_HeikinAshi_1m)に合わせるため前後平滑化(SMMA)を4/5→8/10に強めており、これがSMMAの遅延特性により4〜5本の反応遅れとして再発していた。MAValue()はperiod<=1で平滑なし(生値)を返す仕様のため、前後とも1にすることでMT5標準Heiken Ashiと同じ無平滑の計算式に一致させた。表示用HAインジ(DokaKotsu_HeikinAshi_1m.mq5)側も同じ値(1/1)に合わせて初めて見た目が一致する点に注意(未対応・別途要修正)。 / 2026-09-08 ★【1分足限定・一時措置】田島さんご指示により、エントリー最終ゲートをVolScoreからMACD色一致に一時差し替え可能にした。新規input InpUseMacdFinalGate(既定false)。trueにすると、BUY方向はMACD上昇(緑)・SELL方向はMACD下降(赤)の時だけ通過し、グレーまたは逆色ならreason49で見送り(既存のreason44 MACD免除ゲートで使っているDokaKotsu_MACD_Filterのハンドル/バッファをそのまま流用)。このフラグがtrueの間はInpUseVolScoreGateの値に関わらずVolScoreゲート(reason43)を完全にスキップし、二重ゲート化を避けている。reason46は5分足系列でEA側ReasonTextが既に別の意味(MACD免除エントリー)で使用済みだったため、番号衝突を避けreason49を新規採番。VolScore自体のコード・input(InpUseVolScoreGate/InpVolScoreLowPct)は削除せず温存しており、InpUseMacdFinalGate=falseに戻せばいつでも元のVolScoreゲートに復帰できる。 / 2026-09-01(10回目) ★決済用平均足(HA)の平滑化期間を変更。InpHaPrePeriod(4→8)・InpHaPostPeriod(5→10)。田島さんご指示により、単独計算版の表示用インジDokaKotsu_HeikinAshi_1m.mq5(同じく前平滑化8・後平滑化10に変更済み)と同じ値に統一。8回目の対応で×5スケーリングは既に撤回済み(haPreEff/haPostEffはinput値をそのまま使用)のため、このinput変更がそのまま決済判定の平均足に反映される。 / 2026-09-01(9回目) ★ADX関連の5倍スケーリングを撤回。InpAdxPeriod(60→12)・InpAdxEmaPeriod(250→50)・InpAdxConfirmBars(10→2)。田島さんより実際のログ(2026.09.02 21:33〜23:53)で「22時にエントリーしていない」とのご指摘。ログを確認すると、平均足・長期足・15分足・波はすべて上昇一致していたにもかかわらず、21:33〜22:44の1時間以上「ADXグレー」の状態が続き、スパイクADX禁止(reason39)がずっと解除されず、ADXがようやく「上昇」に転換した22:45にBUYが発生していた。原因はADX自体の計算期間(InpAdxPeriod/InpAdxEmaPeriod)と、非グレー確認の連続本数(InpAdxConfirmBars)の両方を5倍スケーリングしていたため。特にInpAdxConfirmBarsはWMAのInpColorConfirmBarsと同じ「連続確認本数」系の設定で、以前(2026-08-27)にWMA側で5倍化は逆効果と判明済みだった教訓を、ここにも適用すべきだった。3つとも17-2本来の値に戻した。 / 2026-09-01(8回目) ★決済用平均足(HA)の×5スケーリングを撤回。田島さんより「決済が5本くらい遅い、1分足の平均足で決済してほしい」とのご指摘。従来はInpHaPrePeriod/InpHaPostPeriod(4/5)を内部で×5(20本/25本)にして、5分足版と同じ「実時間の長さ」の平滑化を保つ設計だったが、これがまさに決済の遅れの原因だった。haPreEff/haPostEffをInpHaPrePeriod/InpHaPostPeriodそのまま(素の4本/5本)に変更し、1分足チャート本来の速さの平均足で決済するようにした。 / 2026-09-01(7回目) ★ファイル名をDokaKotsu_indicator_1M_1.mq5からDokaKotsu_indicator_1M_5.mq5へ変更。田島さんより、6回目のスパイク面積スケーリング修正後、動作が良くなったとのご確認をいただいたため、区切りとして1M_5に改名。ファイル名・#property version(1M2.01)・DK_VERSION・IndicatorSetString・デバッグPrintタグ([indicator_1M_1]→[indicator_1M_7])を全て1M_5に統一。コード上の判定ロジック自体の変更はなし(6回目までの内容がそのまま1M_5の初期状態)。 / 2026-09-01(6回目) ★スパイク面積閾値を5倍スケーリング。InpSpikeEntryThresh(300→1500)・InpSpikeAreaThresh(1000→5000)。田島さんが「スパイクは出ていないのにreason39(スパイクADX禁止)が出る」とご指摘。スパイク面積は「価格変動幅×スイングにかかったバー本数」で計算されており、1分足は5分足より同じ実時間により多くのバーが対応する(5倍)ため、面積の値も約5倍水増しされ、閾値300を実質超えやすくなっていた(=普通の値動きがスパイク扱いされていた)。他の本数ベースinputと同じ5倍スケーリング方針をここにも適用。 / 2026-09-01(5回目・バグ修正) ★見送り理由コードの表示バグを修正。田島さんの41.JPGで、InpUseM15Filter=falseを確認済み(スクリーンショットで裏付け)なのに見送り理由コード=41が表示され続けていた件を調査。原因: reason41を表示する行(if(timingMissed) BufReason[i]=41.0;)が、allowLogicC側のInpUseM15Filterバイパスを反映しておらず、実際のブロック理由が別(スパイクADX禁止・長期足・スクイーズ等)であっても、timingMissedの生の値がtrueなら無条件に41と表示してしまっていた。if(InpUseM15Filter && timingMissed) BufReason[i]=41.0;に修正し、InpUseM15Filter=falseの時は表示上もM15を理由にしないようにした。これで今後は実際のブロック理由が正しく表示されるはず。 / 2026-09-01(4回目) ★M15フィルターを一時無効化(InpUseM15Filter=true→false)。田島さんより「M1ローリング(緩め)も本物M15(遅すぎ)もダメ、17-2の方が良い、たぶん15分に問題がある」とのご指摘を受け、まずWMAのみでの矢印頻度を確認する目的。InpUseM15Filterは元々一部の分岐(reason19)しかガードしておらず、ロジックC(allowLogicC、実際に使われているENTRY_MODE_C_WMA)内の m15dCur==d 直接比較とtimingMissedラッチはこのフラグと無関係に常時適用される作りだったため、両方とも (!InpUseM15Filter || ...) で無効化できるよう修正。これでInpUseM15Filter=falseにすると、M15関連の判定(reason41相当)は完全にスキップされ、WMA・スパイク禁止・長期足・スクイーズ等の他条件のみでエントリー判定される。"
 
 #property indicator_chart_window
-#property indicator_buffers 64
+#property indicator_buffers 67
 #property indicator_plots   12
 
 //--- 15分足オーバーレイ: M15グレー(レンジ)
@@ -320,6 +378,10 @@ input bool         InpUseLongFilter = true;                 // 長期足一致�
 input bool   InpUseLongFirst   = true;                      // 長期が先頭に点灯していることを必須にするか。true=長期が最後発(後発)ならエントリー禁止。false=順番不問(2026-07-08明確化:短中長期が同色に揃ってさえいればOK。InpUseLongFilterのみでゲート)
 input ENUM_WMATYPE InpLongType      = WT_SMA;               // ★2026-10-02: KAMA→SMAに変更(田島さんご指示)。長期足のMAの種類
 input int          InpLongPeriod    = 700;                  // ★2026-10-28: 800→700に変更(田島さんご指示。種類はSMAのまま)。【以前の値: 800(2026-10-02〜) / さらに前: 900(KAMA時代・1分足版5倍の初期値)】戻す場合は 800 を入れる。 ★2026-10-02: 900→800に変更(田島さんご指示)。★1分足版:5倍(180→900)。長期足の期間
+input bool         InpUseLongNight  = true;                 // ★2026-11-04追加: 長期足の期間を時間帯で切り替える(田島さんご指示)。falseで常にInpLongPeriod
+input int          InpLongNightStartHourJST = 21;           // ★2026-11-04追加: 切替の開始(JST・時)。この時刻から InpLongPeriodNight を使う
+input int          InpLongNightEndHourJST   = 25;           // ★2026-11-04追加: 切替の終了(JST・時。この時刻の手前まで)。24を超える値は翌日(25=翌1:00)
+input int          InpLongPeriodNight       = 400;          // ★2026-11-04追加: 上の時間帯(既定 21:00〜25:00)の長期足の期間。それ以外の時間は InpLongPeriod(700)
 input int          InpLongSlopeStep   = 25;                 // ★1分足版:5倍(5→25)。長期足: 傾き1サンプルを測る本数(旧InpLongSlopeBars)
 input int          InpLongSlopeSmooth = 4;                  // 長期足: 傾きの平滑化サンプル数(直近N個の傾きを平均=スパイク一発を均す)
 input double       InpLongGrayThresh  = 0.03;               // 長期足のグレー閾値(ATR正規化slope。|傾き|<これ=ほぼ水平=グレー=待機)★2026-07-08(_13)変更:0.05→0.03=1波目でグレーを早く抜けさせる
@@ -328,7 +390,7 @@ input bool         InpUseLongSegLock  = true;                // ★2026-09-10追
 
 input group "② 15分足"
 input ENUM_WMATYPE InpM15Type   = WT_SMA;                   // ★2026-10-30: WT_KAMA→WT_SMAに変更(田島さんご指示)。【以前の値: WT_KAMA】戻す場合は WT_KAMA。 Ver8/2026-06-22: 15分足MAの種類(KAMA。適応型でレンジは横ばい→グレー、トレンドで追従)
-input int    InpM15Period    = 15;                          // ★2026-10-30: 15で確認(田島さんご指示「15に変更」。既定値はすでに15のため変更なし。【以前の値: 15】)。チャートのプロパティに別の値が保存されている場合はそちらを15に。 ★1分足化(2回目): 17-2に近づけるため元の値(15)に戻す。本物のPERIOD_M15を使う方式では「2」はほぼ生値になり意味が変わるため
+input int    InpM15Period    = 14;                          // ★2026-10-30(2回目): 15→14に変更(田島さんご指示。種類はWT_SMA・時間足はM5のまま)。【以前の値: 15】戻す場合は 15。 ★2026-10-30: 15で確認(田島さんご指示「15に変更」。既定値はすでに15のため変更なし。【以前の値: 15】)。チャートのプロパティに別の値が保存されている場合はそちらを15に。 ★1分足化(2回目): 17-2に近づけるため元の値(15)に戻す。本物のPERIOD_M15を使う方式では「2」はほぼ生値になり意味が変わるため
 input ENUM_TIMEFRAMES InpMidTF = PERIOD_M5;                  // ★2026-10-22追加: 中期足(旧15分足)の時間足。田島さんご指示でM15→M5
 input bool   InpMidGrayNeedConfirmed = true;                // ★2026-10-22(2回目)追加: 中期足グレー禁止を「ライブ足」と「直前に確定した中期足」の両方がエントリー方向の時だけ通す。ライブ足だけを見ると、足の途中で一瞬グレー→下降/上昇に点灯した瞬間に矢印が出て確定足として固定され、確定後はグレーなのに入っていた(10/22 12:17・16:50のSELL)。falseで従来(ライブ足のみ)
 input bool   InpUseMidGrayBlock = true;                     // ★2026-10-22追加: 中期足がエントリー方向と不一致(グレー/逆)なら禁止(reason19)。タイミングずれ(41)はInpUseM15Filterに従う
@@ -455,6 +517,16 @@ input bool   InpSyncEAPos     = true;                       // ライブ足で�
 input long   InpEAMagic       = 20260606;                   // 同期対象EAのマジックナンバー(EA側と一致させる)
 input bool   InpUseEaBlockGate  = true;                    // ★2026-10-08追加: EAが新規エントリーを止めている間(オセアニア停止/指標前/祝日/手動停止など)は矢印を出さず、トレンド1回分のロック・仮想ポジも消費しない。EA未稼働・GVが古い時は従来どおり(false=従来動作)
 input bool   InpUseVolStopGate  = true;                    // ★2026-10-22追加: VolatilityStopの禁止マーク表示中はエントリー禁止(reason54)。GV DK_VSTOP_<チャートID>を読む
+input group "⑪ 一目均衡表スパンのルール(★2026-11-03追加。表示用 Dokakotsu_SpanB.mq5 はここの値を引用する)"
+input bool   InpUseSpanRule  = true;    // スパン上昇(B>A)は値がスパンBより上の時だけ、スパン下降(A>B)は値がスパンBより下の時だけエントリー可。それ以外は禁止(reason55)
+input int    InpSpanTenkan   = 45;      // 転換線の期間(本)。標準9を、5分足で見る前提で×5
+input int    InpSpanKijun    = 130;     // 基準線の期間(本)。標準26を×5
+input int    InpSpanB        = 260;     // スパンBの期間(本)。標準52を×5
+input int    InpSpanShift    = 130;     // 先に表示する本数。標準26を×5。ルール判定は「いま表示されている値」=この本数前に計算した値
+input bool   InpSpanDirOnly  = false;   // true=さらに、スパン上昇は買いのみ・スパン下降は売りのみに限る(既定falseは値の位置だけで判定)
+input group "⑫ RR不足の規則(★2026-11-03追加。同じチャートの Dokakotsu_Risk-Reward Ratio のRRを読む)"
+input double InpMinRrEntry  = 100.0;   // 入る方向の最良RR(%)がこの値未満ならエントリー禁止(reason56)。100=RR1.0。0で無効。候補なし・インジ未稼働は止めない
+input int    InpRrStaleSec  = 120;     // Dokakotsu_Risk-Reward Ratio の生存確認(GV YDS_TS)がこの秒数より古ければ未稼働とみなし止めない
 input int    InpVolStopStaleSec = 120;                     // ★2026-10-22追加: DK_VSTOP_TS(生存)がこの秒数より古ければVolatilityStop未稼働とみなし禁止しない
 input int    InpEaBlockStaleSec = 120;                     // ★2026-10-08追加: EAのDK_EA_BLOCK_TS(生存)がこの秒数より古ければ「EA停止中」とみなして矢印を抑止しない
 input ENUM_WMATYPE InpEmaType   = WT_KAMA;                  // (旧・引き金/スパイク線。現在は表示をM15に転用したため未使用)
@@ -612,6 +684,9 @@ double BufAdxRaw[];                 // ADX(InpAdxPeriod)の生値(0〜100スケ�
 double BufVolScore[];               // VolScore(%)。CopyBuffer(61)
 double BufVolScoreVol5[];           // 計算専用: EMA(High-Low,5)。CopyBuffer(62,観測専用)
 double BufVolScoreVol20[];          // 計算専用: EMA(それ,20)。CopyBuffer(63,観測専用)
+double BufSpanA[];            // ★2026-11-03: スパンAの生値(先へずらす前)。buf64。表示用 Dokakotsu_SpanB.mq5 が引用
+double BufSpanB[];            // ★2026-11-03: スパンBの生値(先へずらす前)。buf65
+double BufSpanShift[];        // ★2026-11-03: 先行させる本数(全ての足に同じ値)。buf66
 
 //--- ★2026-07-11追加: 相場状態(SQ/TR/SP)の確定足フリーズ用キャッシュ。
 //    「毎ティック全履歴を再計算する」ため、MT5の履歴再同期(週明け再接続・スクロール等)が起きると
@@ -663,6 +738,7 @@ int    hWave = INVALID_HANDLE;  // ★波: 早い線MAハンドル（標準型�
 int hEMA, hSMA, hWMA, hATR;          // M5(チャート足)
 int hM15, hAtrM15;                    // ★Ver8: 15分足オーバーレイ(FRAMA8)+M15 ATR
 int hKAMA=-1, hVIDYA=-1, hFRAMA=-1;  // 適応型MA(標準関数)
+int hLong2=-1;                       // ★2026-11-04: 長期足(夜の時間帯用。InpLongPeriodNight)
 int hLong=-1;                        // ★Ver8.3: 長期足(M5・既定KAMA360)
 int hEMA1, hSMA1, hATR1;             // M1
 int hAdx=INVALID_HANDLE, hAdxEma=INVALID_HANDLE;   // ★2026-07-05: ADXトレンドフィルター用(ADX期間12・EMA期間50)
@@ -1204,6 +1280,9 @@ int OnInit()
    SetIndexBuffer(61, BufVolScore,               INDICATOR_CALCULATIONS); // ★2026-07-21: VolScore(%,buf61,EAが読む・エントリー最終ゲートにも使用)
    SetIndexBuffer(62, BufVolScoreVol5,           INDICATOR_CALCULATIONS); // ★2026-07-21: VolScore計算専用(EMA5,buf62,観測専用)
    SetIndexBuffer(63, BufVolScoreVol20,          INDICATOR_CALCULATIONS); // ★2026-07-21: VolScore計算専用(EMA20,buf63,観測専用)
+   SetIndexBuffer(64, BufSpanA,     INDICATOR_CALCULATIONS); // ★2026-11-03: 一目スパンA生値(buf64。表示用が引用)
+   SetIndexBuffer(65, BufSpanB,     INDICATOR_CALCULATIONS); // ★2026-11-03: 一目スパンB生値(buf65)
+   SetIndexBuffer(66, BufSpanShift, INDICATOR_CALCULATIONS); // ★2026-11-03: 先行本数(buf66)
 
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(1, PLOT_EMPTY_VALUE, EMPTY_VALUE);
@@ -1273,6 +1352,7 @@ int OnInit()
    // ★1分足化(2回目): 17-2に近づけるため、本物のPERIOD_M15を直接参照する方式に戻す(田島さんご要望)
    hM15    = MakeMA(InpM15Type, InpM15Period, InpMidTF);   // ★2026-10-22: PERIOD_M15→InpMidTF(既定M5)
    hLong   = MakeMA(InpLongType, InpLongPeriod, _Period); // ★Ver8.3: 長期足(M5・KAMA360)
+   hLong2  = MakeMA(InpLongType, InpLongPeriodNight, _Period);   // ★2026-11-04: 夜の時間帯用の長期足
    hAtrM15 = iATR(_Symbol, InpMidTF, 14);                  // ★2026-10-22: PERIOD_M15→InpMidTF
    hWave   = MakeWaveHandle(InpWaveMaType, InpWaveFast); // ★波: 早い線MA
    // ★2026-07-17削除: ZigZag_ATR(外部サブインジ)は使わない方針となったため、iCustom呼び出しを削除。
@@ -1357,7 +1437,7 @@ int OnInit()
    //   起動することがJournalで確認できたため追加。
    Print("[indicator_1M_7] 実際に使う決済用平均足: InpHaPrePeriod=", InpHaPrePeriod, " InpHaPostPeriod=", InpHaPostPeriod,
          " InpHaPreMethod=", EnumToString(InpHaPreMethod), " InpHaPostMethod=", EnumToString(InpHaPostMethod),
-         " | 長期足: InpLongType=", EnumToString(InpLongType), " InpLongPeriod=", InpLongPeriod);   // ★2026-10-28追加: 長期足の種類・期間も出す(チャートのコピーとEAの裏のコピーで値が揃っているかをJournalで確認するため)
+         " | 長期足: InpLongType=", EnumToString(InpLongType), " InpLongPeriod=", InpLongPeriod, " 夜(", InpUseLongNight ? "ON" : "OFF", " ", InpLongNightStartHourJST, "-", InpLongNightEndHourJST, "時JST)=", InpLongPeriodNight);   // ★2026-10-28追加: 長期足の種類・期間も出す(チャートのコピーとEAの裏のコピーで値が揃っているかをJournalで確認するため)
 
    return(INIT_SUCCEEDED);
 }
@@ -1469,6 +1549,31 @@ bool VolStopActiveNow()
    return (GlobalVariableGet(gv) >= 0.5);
 }
 
+//+------------------------------------------------------------------+
+//| ★2026-11-03追加: RR不足の規則。同じチャートの Dokakotsu_Risk-Reward Ratio が公開するGV  |
+//|   YDS_RB_<ID>(買いの最良RR) / YDS_RS_<ID>(売りの最良RR) / YDS_TS_<ID>(生存) を読む。   |
+//|   RRは倍率(2.4=240%)。-1=候補なし。VolatilityStop(reason54)と同じ方式で、              |
+//|   ライブ足=いまの値 / 1本前=確定時の値 / それより古い足は適用しない。                    |
+//+------------------------------------------------------------------+
+datetime g_rrBarTime  = 0;
+datetime g_rrPrevTime = 0;
+double   g_rrBuy  = -1.0, g_rrSell  = -1.0;     // ライブ足での最良RR(買い・売り)
+double   g_rrPBuy = -1.0, g_rrPSell = -1.0;     // 1本前の足が確定した時点の最良RR
+
+void RrReadNow(double &rrB, double &rrS)
+{
+   rrB = -1.0; rrS = -1.0;
+   if(InpMinRrEntry <= 0.0) return;
+   long cid = ChartID();
+   string ts = StringFormat("YDS_TS_%I64d", cid);
+   string gb = StringFormat("YDS_RB_%I64d", cid);
+   string gs = StringFormat("YDS_RS_%I64d", cid);
+   if(!GlobalVariableCheck(ts) || !GlobalVariableCheck(gb) || !GlobalVariableCheck(gs)) return;   // RRインジ未稼働なら止めない
+   if(TimeCurrent() - (datetime)GlobalVariableGet(ts) > InpRrStaleSec) return;                      // 古い値で止め続けない
+   rrB = GlobalVariableGet(gb);
+   rrS = GlobalVariableGet(gs);
+}
+
 bool EaEntryBlockedNow()
 {
    if(!InpUseEaBlockGate) return false;
@@ -1533,6 +1638,7 @@ void DkRecreateCoreHandles()   // OnInitと同じ式で、OnCalculate先頭で�
    if(hAdx    != INVALID_HANDLE) IndicatorRelease(hAdx);
    if(hAdxEma != INVALID_HANDLE) IndicatorRelease(hAdxEma);
    if(hLong   != INVALID_HANDLE) IndicatorRelease(hLong);
+   if(hLong2  != INVALID_HANDLE) IndicatorRelease(hLong2);   // ★2026-11-04
    hEMA = MakeMA(InpEmaType, InpEmaPeriod, _Period);
    hSMA = iMA(_Symbol, _Period, InpSmaPeriod, 0, MODE_SMA, PRICE_CLOSE);
    ENUM_MA_METHOD wmode = MODE_LWMA;
@@ -1546,8 +1652,29 @@ void DkRecreateCoreHandles()   // OnInitと同じ式で、OnCalculate先頭で�
    hAdx    = iADX(_Symbol, _Period, InpAdxPeriod);
    hAdxEma = iMA(_Symbol, _Period, InpAdxEmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
    hLong   = MakeMA(InpLongType, InpLongPeriod, _Period);
+   hLong2  = MakeMA(InpLongType, InpLongPeriodNight, _Period);   // ★2026-11-04
 }
 
+//+------------------------------------------------------------------+
+//| ★2026-11-04追加: 長期足の期間を時間帯で切り替える                                  |
+//|   JST InpLongNightStartHourJST 時 〜 InpLongNightEndHourJST 時の手前(24超は翌日)の足は          |
+//|   InpLongPeriodNight 本、それ以外は InpLongPeriod 本の長期足を使う。                               |
+//+------------------------------------------------------------------+
+int LongJstOff()   // サーバー→JSTの時差(時間)。EAが公開しているGVがあればそれ、無ければサーバーとGMTの差から(日本=GMT+9)
+{
+   string gvJ = StringFormat("DK_EA_JSTOFF_%I64d", InpEAMagic);
+   if(GlobalVariableCheck(gvJ)) return (int)MathRound(GlobalVariableGet(gvJ));
+   long g = (long)(TimeTradeServer() - TimeGMT());
+   return 9 - (int)MathRound((double)g / 3600.0);
+}
+
+bool LongNightHour(const int h)   // JSTの時(0〜23)が、夜の時間帯か
+{
+   int s = InpLongNightStartHourJST, e = InpLongNightEndHourJST;
+   if(e > 24) return (h >= s || h < (e - 24));   // 日跨ぎ(21〜25 → 21,22,23,0)
+   return (h >= s && h < e);
+}
+
 int DkStall(const string nm, const int h, const int rates_total, const int prev_calculated)
 {
    int err = GetLastError();
@@ -1586,6 +1713,51 @@ int EAPosDir()
 }
 
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| ★2026-11-03追加: 一目均衡表スパンのルール                                          |
+//|   スパンA=(転換線+基準線)/2、スパンB=期間の(最高値+最安値)/2。どちらも先へ        |
+//|   InpSpanShift 本ずらして表示する。バッファには「ずらす前」の値を保管し、           |
+//|   ルール判定は「いま表示されている値」= i-InpSpanShift 番目の値を使う。             |
+//+------------------------------------------------------------------+
+double SpanMid(const int i, const int period, const double &high[], const double &low[])
+{
+   double hh = high[i];
+   double ll = low[i];
+   for(int k = 1; k < period; k++)
+   {
+      if(high[i - k] > hh) hh = high[i - k];
+      if(low[i - k]  < ll) ll = low[i - k];
+   }
+   return (hh + ll) / 2.0;
+}
+
+void UpdateSpans(const int rates_total, const int prev_calculated, const double &high[], const double &low[])
+{
+   int firstA = MathMax(MathMax(InpSpanKijun, InpSpanTenkan), 2) - 1;   // スパンAを計算できる最初の足
+   int firstB = MathMax(InpSpanB, 2) - 1;                                // スパンBを計算できる最初の足
+   int start  = (prev_calculated > 0) ? MathMax(0, prev_calculated - 1) : 0;
+   for(int j = start; j < rates_total; j++)
+   {
+      BufSpanA[j] = (j >= firstA) ? (SpanMid(j, InpSpanTenkan, high, low) + SpanMid(j, InpSpanKijun, high, low)) / 2.0 : EMPTY_VALUE;
+      BufSpanB[j] = (j >= firstB) ? SpanMid(j, InpSpanB, high, low) : EMPTY_VALUE;
+      BufSpanShift[j] = (double)InpSpanShift;
+   }
+}
+
+// そのエントリー(方向 d・価格 price)を、スパンのルールで許可するか
+bool SpanAllowed(const int i, const int d, const double price)
+{
+   int j = i - MathMax(0, InpSpanShift);        // 「いま表示されている値」= 先行させた本数だけ前に計算した値
+   if(j < 0) return true;
+   double a = BufSpanA[j];
+   double b = BufSpanB[j];
+   if(a == EMPTY_VALUE || b == EMPTY_VALUE) return true;     // 計算できる足が無い間は判定しない
+   int state = (b > a) ? 1 : ((a > b) ? -1 : 0);              // 1=スパン上昇(Bが上) / -1=スパン下降(Aが上)
+   if(state == 0) return false;                               // AとBが同値=どちらでもない → それ以外は禁止
+   if(InpSpanDirOnly && d != state) return false;             // 任意: 上昇は買いのみ・下降は売りのみ
+   return (state == 1) ? (price > b) : (price < b);
+}
+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
                 const datetime &time[],
@@ -1597,7 +1769,7 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[])
 {
-   int need = MathMax(MathMax(MathMax(MathMax(MathMax(InpEmaPeriod, InpSmaPeriod), InpWmaPeriod), InpLongPeriod), InpAdxEmaPeriod), InpZzAtrPeriod) + 5;
+   int need = MathMax(MathMax(MathMax(MathMax(MathMax(InpEmaPeriod, InpSmaPeriod), InpWmaPeriod), MathMax(InpLongPeriod, InpUseLongNight ? InpLongPeriodNight : 0)), InpAdxEmaPeriod), InpZzAtrPeriod) + 5;
    if(rates_total < need + 2) return(DkStall("rates_total<need+2",INVALID_HANDLE,rates_total,0));
 
    ArraySetAsSeries(time,  false);
@@ -1605,6 +1777,7 @@ int OnCalculate(const int rates_total,
    ArraySetAsSeries(low,   false);
    ArraySetAsSeries(close, false);
    ArraySetAsSeries(tick_volume, false);   // ★出来高フィルター用(昇順)
+   UpdateSpans(rates_total, prev_calculated, high, low);   // ★2026-11-03: 一目スパンの値(バッファ64〜66。表示用が引用)
 
    // --- チャート足(M5)の値 ---
    double ema[], sma[], wma[], atr[];
@@ -1615,6 +1788,26 @@ int OnCalculate(const int rates_total,
    double longLine[];                                    // ★Ver8.3: 長期足(M5)
    if(CopyBuffer(hLong,0,0,rates_total,longLine)<=0) return(DkStall("hLong",hLong,rates_total,prev_calculated));
    ArraySetAsSeries(ema,false); ArraySetAsSeries(sma,false); ArraySetAsSeries(longLine,false);
+   // ★2026-11-04追加: 長期足を時間帯で切り替える。longLine(従来=InpLongPeriod)を longLine7 に控え、夜の時間帯の足だけ longLineN(InpLongPeriodNight)に差し替える。
+   //   線(BufSma20)は切り替えた値、傾き・角度は「その足の時間帯の系列」だけで計算する(混ぜた差を取らない=境目で傾きが跳ねない)。
+   double longLine7[], longLineN[];
+   bool   longNightOn = false;
+   bool   longIsNight[];
+   if(InpUseLongNight && hLong2 != INVALID_HANDLE)
+   {
+      if(CopyBuffer(hLong2,0,0,rates_total,longLineN)<=0) return(DkStall("hLong2",hLong2,rates_total,prev_calculated));
+      ArraySetAsSeries(longLineN,false);
+      ArrayCopy(longLine7, longLine);
+      ArrayResize(longIsNight, rates_total);
+      long jOffSec = (long)LongJstOff() * 3600;
+      for(int qn=0; qn<rates_total; qn++)
+      {
+         int jh = (int)((((long)time[qn] + jOffSec) % 86400) / 3600);   // JSTの時(0〜23)
+         longIsNight[qn] = LongNightHour(jh);
+         longLine[qn]    = longIsNight[qn] ? longLineN[qn] : longLine7[qn];
+      }
+      longNightOn = true;
+   }
 
    // ★2026-07-05: ADXトレンドフィルター用データ(ADX期間12・EMA期間50。DokaKotsu_Trend_Filterと同一計算)
    double adxArr[], adxEmaArr[];
@@ -2131,6 +2324,18 @@ int OnCalculate(const int rates_total,
       }
       g_vsState = VolStopActiveNow();
    }
+      // ★2026-11-03追加: RR不足の規則用に、買い・売りの最良RRを記録(VolatilityStopと同じ方式)
+      {
+         datetime lastTrr = time[rates_total-1];
+         if(lastTrr != g_rrBarTime)
+         {
+            g_rrPrevTime = g_rrBarTime;
+            g_rrPBuy     = g_rrBuy;
+            g_rrPSell    = g_rrSell;
+            g_rrBarTime  = lastTrr;
+         }
+         RrReadNow(g_rrBuy, g_rrSell);
+      }
 
 for(int i=need; i<rates_total; i++)
    {
@@ -2191,7 +2396,8 @@ for(int i=need; i<rates_total; i++)
             int a = i - ks;
             int b = a - InpLongSlopeStep;
             if(b < 0) break;
-            sumSlope += (longLine[a]-longLine[b]);
+            sumSlope += longNightOn ? (longIsNight[i] ? (longLineN[a]-longLineN[b]) : (longLine7[a]-longLine7[b]))   // ★2026-11-04: その足の時間帯の系列だけで傾きを出す
+                                    : (longLine[a]-longLine[b]);
             cntS++;
          }
          double lsl = (cntS>0) ? (sumSlope/cntS)/atr[i] : 0.0;
@@ -2235,7 +2441,7 @@ for(int i=need; i<rates_total; i++)
                           ? (macdMainArr[i]-macdSignalArr[i]) : EMPTY_VALUE;
       BufEmaDist[i]        = (atr[i]>0.0) ? (price - ema[i])/atr[i] : 0.0;
       BufGmmaShortAngle[i] = (i>0 && atr[i]>0.0) ? (ema[i]-ema[i-1])/atr[i]         : 0.0; // 代理:EMA10傾き
-      BufGmmaLongAngle[i]  = (i>0 && atr[i]>0.0) ? (longLine[i]-longLine[i-1])/atr[i] : 0.0; // 代理:長期足MA傾き
+      BufGmmaLongAngle[i]  = (i>0 && atr[i]>0.0) ? ((longNightOn ? (longIsNight[i] ? (longLineN[i]-longLineN[i-1]) : (longLine7[i]-longLine7[i-1])) : (longLine[i]-longLine[i-1]))/atr[i]) : 0.0; // 代理:長期足MA傾き(★2026-11-04: その足の時間帯の系列で)
       if(i>=20)
       {
          double hh=-DBL_MAX, ll=DBL_MAX;
@@ -3138,6 +3344,23 @@ for(int i=need; i<rates_total; i++)
                if(isLastBar) vsHere = g_vsState;
                else if(time[i] == g_vsPrevTime) vsHere = g_vsPrevState;
                if(vsHere) { allowFinal = false; BufReason[i] = 54.0; }   // reason54: VolatilityStop禁止マーク表示中
+            }
+
+            // ★2026-11-03追加: 一目均衡表スパンのルール(reason55)。スパン上昇(B>A)は値がスパンBより上の時だけ、
+            //   スパン下降(A>B)は値がスパンBより下の時だけエントリー可。それ以外は禁止。
+            if(InpUseSpanRule && allowFinal)
+            {
+               if(!SpanAllowed(i, d, close[i])) { allowFinal = false; BufReason[i] = 55.0; }   // reason55: 一目スパンのルールで禁止
+            }
+
+            // ★2026-11-03追加: RR不足の規則(reason56)。入る方向の最良RRが InpMinRrEntry(%)未満なら禁止。
+            //   候補なし(-1)・インジ未稼働は止めない。ライブ足=いまの値 / 1本前=確定時の値 / それより古い足=判定不能のため適用しない。
+            if(InpMinRrEntry > 0.0 && allowFinal)
+            {
+               double rrHere = -1.0;
+               if(isLastBar) rrHere = (d == 1) ? g_rrBuy : g_rrSell;
+               else if(time[i] == g_rrPrevTime) rrHere = (d == 1) ? g_rrPBuy : g_rrPSell;
+               if(rrHere >= 0.0 && rrHere * 100.0 < InpMinRrEntry) { allowFinal = false; BufReason[i] = 56.0; }   // reason56: RR不足で禁止
             }
 
             if(allowFinal)

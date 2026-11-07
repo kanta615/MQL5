@@ -1,7 +1,79 @@
 ﻿//+------------------------------------------------------------------+
 //|                         DokaKotsu_Watchdog.mq5                   |
-//|  バージョン : v1.2 (インジケーター版 / _Ind→_Watchdogへ改名)      |
-//|  更新日時   : 2026-06-20 (JST)                                   |
+//|  バージョン : v1.8 (時間帯の停止の名前を追加)                     |
+//|  更新日時   : 2026-11-04 (JST・2回目)                             |
+//|------------------------------------------------------------------|
+//|  ■ 変更履歴                                                     |
+//|   ○ 2026-11-05 田島さんご指示。毎日の時間帯の停止の名前を表示に追加:       |
+//|      「オセアニア市場停止」(4:00〜8:59)・「10時のみ取引停止」(10:00〜10:59)・|
+//|      「日本市場午後停止」(13:00〜18:59)。分類は「時間帯」。例:              |
+//|      Watchdog ： 取引停止中 / 時間帯(日本市場午後停止) / 連携OK            |
+//|      (EAの停止理由コード20・21に対応。オセアニアの名前も「オセアニア市場停止」へ)|
+//|   ○ 2026-11-04(4回目) 田島さんご指示。①先頭の表示を、EA稼働中/EA停止中から  |
+//|      「取引中」/「取引停止中」に変更。新規エントリーができない状態は、     |
+//|      全て「取引停止中」: EA停止・通信断・自動売買OFF・価格停止・市場休場・ |
+//|      停止ルール中(経済指標など)・連携NG(EA判定/本体インジ未検出/矢印GV停止)。|
+//|      正常は「取引中 / 連携OK」。理由は次に出す。例:                       |
+//|        Watchdog ： 取引停止中 / 経済指標(ISM) / 連携OK                   |
+//|        Watchdog ： 取引停止中 / 連携NG(矢印GV停止 11分)                   |
+//|      VolatilityStop・RRインジの停止、理由ログ停止、EXIT継続なのに保有残存は、|
+//|      新規エントリーは止まらないので「取引中」のまま警告だけ出す。          |
+//|      ②「価格停止(… --)」と出て、チャートは動いているのに止まって見えた    |
+//|      不具合を修正。原因=最後のティックの時刻が、PCから見たサーバー時刻より |
+//|      先(PCの時計が遅れている)で、経過秒が負になり、「ティックが来ない」と |
+//|      誤判定していた(従来の「市場休場」誤表示も同じ原因の可能性)。            |
+//|      時計の差に頼らず、「ティックが更新され続けているか」でも見る方式に変更。|
+//|   ○ 2026-11-04(3回目) 田島さんご指示で、「Watchdog ：」の右の先頭に、     |
+//|      EA稼働中 / EA停止中 を出すようにした。EA稼働中=EAの心拍(GV)が       |
+//|      InpEaTimeoutSec以内。EA停止中=心拍が途絶(従来の「EA停止」と同じ判定)。|
+//|      例: Watchdog ： EA稼働中 / 経済指標(ISM) / 連携OK                    |
+//|          Watchdog ： 🚨EA停止中 / EAを確認! / 連携NG(EA心拍切れ 2分)       |
+//|      あわせて、停止がない時の分類名を、「稼働中」から「取引可」に変更      |
+//|      (先頭の「EA稼働中」と重なって紛らわしいため)。                      |
+//|      表示は1つのラベルなので、色は行全体の状態(赤/橙/黄/緑/灰)で変わる。    |
+//|   ○ 2026-11-04(2回目) 「市場休場」の表示が、本当の休場と、通信断・価格が |
+//|      来ない状態を見分けられなかった問題に対応(11/4の夜、取引時間中に    |
+//|      ティックが止まったのに「市場休場」と出ていた)。                    |
+//|      ①通信断: MT5が取引サーバーに接続していない(TERMINAL_CONNECTED=false)|
+//|        時は「🚨通信断」(赤)。スマホ通知する。                           |
+//|      ②価格停止: 接続はしているのに、その銘柄の取引時間中(気配の時間帯)に  |
+//|        ティックが来ない時は「⚠価格停止(...)」(橙)。InpStallNotifyMin     |
+//|        (既定10分)続いたらスマホ通知。0で通知しない。                     |
+//|      ③市場休場: 取引時間の外の時だけ「⏸市場休場」(灰)。取引時間が取れない |
+//|        場合は、従来どおり「市場休場」。                                  |
+//|      ④通知の時間計算を、ティックが止まると進まないTimeCurrentから、      |
+//|        進み続けるTimeTradeServerへ変更(ティックが止まっている間も、       |
+//|        再通知・継続時間が正しく進む)。                                  |
+//|   ○ 2026-11-04 田島さんご指示で、表示を作り直した(判定・通知・決済指示の|
+//|      ロジックは変更なし)。                                          |
+//|      ①1行表示「Watchdog ： 分類名 / 連携OK」に統一。停止の分類名は     |
+//|        手動停止/成績停止/休日/週末/時間帯/経済指標。具体名を括弧で、     |
+//|        重なっている停止の数を「+N」で添える。例: 経済指標(ISM) +1。    |
+//|        分類の判定はEAだけが持つ(GV DK_EA_STOPCAT_/DK_EA_STOPCNT_)。     |
+//|        停止なしは「稼働中」。EA停止・自動売買OFF・市場休場・理由ログ停止|
+//|        ・EXIT継続なのに保有残存は、従来どおりの意味で、同じ書式で表示。 |
+//|      ②時刻・EA心拍の秒数・「自動売買ON」は通常は出さない(異常時だけ:   |
+//|        EA停止/自動売買OFF/連携NGの内訳に出す)。                        |
+//|      ③連携NGの内訳を表示: EA心拍切れ・本体インジ未検出・矢印GV停止・     |
+//|        VStop停止・RRインジ停止。連携先のGVは、止まってから6時間以内の   |
+//|        ものだけ(外したものを出し続けない。InpOptGoneSec)。              |
+//|      ④左端の「Label」を消した。空文字のラベルは、MT5が既定の「Label」を |
+//|        表示するため、ラベルごと削除する方式に変更(損切り再決済の行も同じ)。|
+//|        停止理由の3行目は廃止(1行に統合)。                              |
+//|      ⑤チャート左上のMT5標準の見出しから価格(OHLC)を消す(InpHideOhlc。  |
+//|        外した時は元の設定へ戻す)。「/ Spot」は銘柄の説明文で消せない。   |
+//|      ⑥停止理由の名前表を、EAの停止理由コード1〜19に全て対応させた(従来は |
+//|        1〜9だけで、日次損失上限・手動停止などが出なかった)。            |
+//|   ○ 2026-09-09 EAハートビート/reasonログが生きていても、MT5端末   |
+//|      側のアルゴ取引ボタンOFF(TERMINAL_TRADE_ALLOWED=false)や口座 |
+//|      側のEA取引不許可(ACCOUNT_TRADE_EXPERT=false)で発注が          |
+//|      ブロックされている状態(retcode 10027等)を「EA正常稼働」と    |
+//|      誤表示していた問題を修正(田島さん報告)。Check()内で           |
+//|      TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)と                |
+//|      AccountInfoInteger(ACCOUNT_TRADE_EXPERT)をこのインジ自身が    |
+//|      直接読む(EA側GVの書き忘れ・実装漏れに依存しない一箇所管理)。  |
+//|      WD_TRADE_OFF状態を新設し、1行目見出しを🚨自動売買OFFに変更、  |
+//|      スマホ通知(isBad)対象にも追加。                              |
 //|------------------------------------------------------------------|
 //|  役割:                                                           |
 //|   ・DokaKotsu EA の生存(ハートビート)を GlobalVariable で監視     |
@@ -31,7 +103,7 @@
 //|       DK_EA_LOSSSTREAK_<magic> … 連敗数(連敗表示用)              |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.10"
+#property version   "1.80"
 #property strict
 #property indicator_chart_window
 #property indicator_plots   0
@@ -56,19 +128,30 @@ input int    InpResendMin      = 30;        // 異常継続中の再通知間隔
 input bool   InpNotifyRecover  = true;      // 復旧時も通知するか
 //--- ★損切り救済(EAの再決済)表示
 input int    InpRescueShowMin  = 5;         // 損切り再決済を検知したら、この分数だけ2行目に表示
+input bool   InpHideOhlc       = true;      // ★2026-11-04: チャート左上のMT5標準の見出しから価格(OHLC)を消す(外した時は元の設定へ戻す)
+input int    InpOptStaleSec    = 180;       // ★2026-11-04: 連携先(矢印GV/VolatilityStop/RRインジ)の生存確認がこの秒数より古ければ、連携NGの内訳に出す
+input int    InpStallNotifyMin = 10;        // ★2026-11-04(2回目): 「価格停止」(取引時間中のティック無し)がこの分数続いたらスマホ通知(0=通知しない)
+input int    InpOptGoneSec     = 21600;     // ★2026-11-04: 上より古く、この秒数も超えたものは「外した」とみなして出さない(既定6時間)
 //--- ★決済の安全網(見張り+緊急ブザー)
 input string InpIndicatorPrefix = "DokaKotsu_indicator_"; // ★2026-07-08変更: 監視する本体インジ名の"接頭辞"のみ指定。バージョン番号(_10/_13等)は自動検出するため毎回の手動更新が不要
 input bool   InpForceExit      = true;      // ★EXIT継続なのに保有残存(背景も保有方向でない)を検知→EAへ決済指示(GV)
 input int    InpStuckGraceSec  = 20;        // ★その状態がこの秒数続いたら決済指示を発令(EAの自力決済を待つ猶予)
 
 //--- 状態
-enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3 };
+enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3, WD_TRADE_OFF=4, WD_DISCONNECTED=5, WD_PRICE_STALL=6 };   // ★2026-11-04(2回目): 通信断/価格停止を追加  // ★2026-09-09追加: WD_TRADE_OFF(自動売買OFF)
 WD_STATE  g_prev      = WD_OK;
 datetime  g_lastAlert = 0;
+long      g_tickMsc    = 0;       // ★2026-11-04(4回目): 前回見た最後のティックのミリ秒時刻(更新の検出用)
+ulong     g_tickChgMs  = 0;       // ★2026-11-04(4回目): ティックが更新されたのを最後に見たPC時刻(GetTickCount64。時計のずれの影響を受けない)
+datetime  g_stallSince = 0;       // ★2026-11-04(2回目): 「価格停止」が始まった時刻(TimeTradeServer基準)
+bool      g_prevBad    = false;   // ★2026-11-04(2回目): 直前が通知対象の異常だったか
+bool      g_notifiedBad= false;   // ★2026-11-04(2回目): 異常をスマホへ通知済みで、復旧の通知がまだか
 bool      g_started   = false;
 string    LBL_MAIN   = "DKWD_main";
 string    LBL_RESCUE = "DKWD_rescue";       // ★損切り救済の2行目ラベル
-string    LBL_REASON = "DKWD_reason";       // ★2026-07-08追加: 停止理由専用の別行(1行目が画面幅で見切れて理由が読めない対策)
+string    LBL_REASON = "DKWD_reason";       // ★2026-11-04: 廃止(1行に統合)。旧版が残したラベルを消すためだけに名前を持つ
+long      g_prevOhlc       = -1;            // ★2026-11-04: OHLC表示の元の設定
+bool      g_ohlcHidden     = false;         // ★2026-11-04: このインジがOHLCを消したか
 datetime  g_lastRescueSeen = 0;             // ★直近で通知済みの救済時刻(再通知防止)
 int       g_ind            = INVALID_HANDLE; // ★本体インジ(buf9/buf25)ハンドル
 string    g_indNameSeen    = "";            // ★直近で見つけた実名(ログ確認用)
@@ -112,9 +195,14 @@ int OnInit()
 {
    EventSetTimer(InpCheckSec > 0 ? InpCheckSec : 10);
    g_ind = FindDokaKotsuHandle();   // ★2026-07-08変更: バージョン番号を問わず自動検出
-   CreateLabel(LBL_MAIN,   InpY,      InpFontSize, clrSilver, "DokaKotsu : starting...");
-   CreateLabel(LBL_RESCUE, InpY + 22, InpFontSize, clrAqua,   "");   // ★救済表示(2行目)
-   CreateLabel(LBL_REASON, InpY + 44, InpFontSize, clrOrange, "");   // ★2026-07-08追加: 停止理由(3行目)
+   if(InpHideOhlc)   // ★2026-11-04: MT5標準の見出し(銘柄, 時間足: 説明 価格)から、価格(OHLC)を消す
+   {
+      g_prevOhlc   = ChartGetInteger(0, CHART_SHOW_OHLC);
+      ChartSetInteger(0, CHART_SHOW_OHLC, false);
+      g_ohlcHidden = true;
+   }
+   ObjectDelete(0, LBL_REASON);   // ★2026-11-04: 旧版の3行目ラベルが残っていたら消す
+   CreateLabel(LBL_MAIN, InpY, InpFontSize, clrSilver, "Watchdog ： starting...");
    Check();   // 即時1回
    return(INIT_SUCCEEDED);
 }
@@ -138,6 +226,7 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LBL_MAIN);
    ObjectDelete(0, LBL_RESCUE);
    ObjectDelete(0, LBL_REASON);
+   if(g_ohlcHidden && g_prevOhlc >= 0) ChartSetInteger(0, CHART_SHOW_OHLC, g_prevOhlc);   // ★2026-11-04: OHLC表示を元へ戻す
    ChartRedraw(0);
 }
 
@@ -181,6 +270,29 @@ string NowStamp()
 }
 
 //+------------------------------------------------------------------+
+//| ★2026-11-04(2回目): いま(サーバー時間)が、その銘柄の「気配が来るはずの時間帯」か。                |
+//|   1=時間帯の中 / 0=時間帯の外(週末・休止) / -1=時間帯の情報が取れない(判断できない)。         |
+//+------------------------------------------------------------------+
+int QuoteSessionState(const string sym, const datetime nowSrv)
+{
+   MqlDateTime d; TimeToStruct(nowSrv, d);
+   int tod = d.hour*3600 + d.min*60 + d.sec;
+   ENUM_DAY_OF_WEEK dow = (ENUM_DAY_OF_WEEK)d.day_of_week;
+   bool any = false;
+   for(uint i = 0; i < 16; i++)
+   {
+      datetime f, t;
+      if(!SymbolInfoSessionQuote(sym, dow, i, f, t)) break;
+      any = true;
+      int fs = (int)(((long)f) % 86400);
+      int te = (int)t;  if(te > 86400) te = te % 86400;   // 24:00は86400のまま扱う
+      if(te == 0 && t > 0) te = 86400;
+      if(tod >= fs && tod < te) return 1;
+   }
+   return any ? 0 : -1;
+}
+
+//+------------------------------------------------------------------+
 //| 監視本体                                                         |
 //+------------------------------------------------------------------+
 void Check()
@@ -202,8 +314,15 @@ void Check()
    // --- 2) 市場オープン判定(直近ティック鮮度)。TimeCurrentはティック時刻=土日は止まるため不可 ---
    MqlTick tk;
    bool    gotTick    = SymbolInfoTick(sym, tk);
-   int     tickAge    = gotTick ? (int)(nowTrd - tk.time) : 999999;   // 進み続ける時計で測る
-   bool    marketOpen = gotTick && tickAge >= 0 && tickAge <= InpTickStaleSec;
+   int     tickAge    = gotTick ? (int)(nowTrd - tk.time) : 999999;   // 進み続ける時計で測る(PCの時計とサーバー時刻の差の影響を受ける)
+   // ★2026-11-04(4回目)修正: PCの時計が遅れていると、最後のティックの時刻がPC側の「いまのサーバー時刻」より先になり、tickAgeが負になる。
+   //   従来はこれを「ティックが来ない」と誤判定し、チャートが動いているのに「市場休場/価格停止」と出ていた。
+   //   tickAgeが負の時は、時計の差に頼らず、「最後のティックが更新され続けているか(最後に更新を見てからの経過秒)」で鮮度を見る。
+   ulong   nowMs      = GetTickCount64();
+   if(gotTick && (long)tk.time_msc != g_tickMsc) { g_tickMsc = (long)tk.time_msc; g_tickChgMs = nowMs; }
+   int     sinceChg   = (g_tickChgMs > 0) ? (int)((nowMs - g_tickChgMs) / 1000) : 999999;
+   int     staleAge   = (gotTick && tickAge < 0) ? sinceChg : tickAge;     // 鮮度(秒)
+   bool    marketOpen = gotTick && staleAge <= InpTickStaleSec;
 
    // --- 3) 理由CSVの健全性(書込み成功時刻GV。市場オープン中のみ厳格判定) ---
    string   rsName = StringFormat("DK_EA_LASTREASON_%d", InpMagic);
@@ -213,11 +332,26 @@ void Check()
    bool reasonDown = (!eaDown) && marketOpen &&
                      ((!rsEx) || (rsAge < 0) || (rsAge > InpReasonStaleSec));
 
+   // --- ★2026-09-09追加: MT5端末側の自動売買許可(ハートビート/reasonログとは別問題)。
+   //     TERMINAL_TRADE_ALLOWED=ツールバーのアルゴ取引ボタン、ACCOUNT_TRADE_EXPERT=口座側の
+   //     EA取引許可。どちらもEAではなくこのインジ自身から直接読める値なので、EA側のGV書き忘れに
+   //     依存せずここ一箇所で判定する(retcode 10027="AutoTrading disabled by client terminal"対策)。
+   bool algoOk = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);
+
+   // --- ★2026-11-04(2回目): 通信断/価格停止/市場休場を見分ける ---
+   //     通信断   : MT5が取引サーバーに接続していない(TERMINAL_CONNECTED=false)
+   //     価格停止 : 接続はしている・その銘柄の気配の時間帯の中・なのにティックが来ない(InpTickStaleSec超)
+   //     市場休場 : 気配の時間帯の外(週末・休止)。時間帯の情報が取れない時も、従来どおり休場とする
+   bool connected = (bool)TerminalInfoInteger(TERMINAL_CONNECTED);
+   int  inSess    = (connected && !marketOpen) ? QuoteSessionState(sym, nowTrd) : 0;
+
    // --- 総合状態 ---
    WD_STATE st;
    if(eaDown)           st = WD_EA_DOWN;
+   else if(!connected)  st = WD_DISCONNECTED;   // ★2026-11-04(2回目)
+   else if(!algoOk)     st = WD_TRADE_OFF;   // ★2026-09-09追加: プロセスは生きていても発注不可
    else if(reasonDown)  st = WD_REASON_DOWN;
-   else if(!marketOpen) st = WD_MARKET_CLOSED;
+   else if(!marketOpen) st = (inSess == 1) ? WD_PRICE_STALL : WD_MARKET_CLOSED;   // ★2026-11-04(2回目)
    else                 st = WD_OK;
 
    // --- ★EAの停止理由(GV)を読む。RUNNING行の右に出す ---
@@ -241,22 +375,39 @@ void Check()
    else if(!hasPos && GlobalVariableCheck(reqNm) && GlobalVariableGet(reqNm)!=0.0)
       GlobalVariableSet(reqNm, 0.0);                               // フラット化→指示を下ろす
 
-   // --- チャート表示(1行目=最重要枠: 年月日+稼働+緊急) ---
+   // --- チャート表示(★2026-11-04: 1行「Watchdog ： 分類名 / 連携OK」。時刻・心拍秒数・自動売買ONは異常時だけ) ---
    bool tradeOk = GlobalVariableCheck(StringFormat("DK_EA_TRADEOK_%d",InpMagic)) && GlobalVariableGet(StringFormat("DK_EA_TRADEOK_%d",InpMagic))!=0.0;
    bool linkOk  = GlobalVariableCheck(StringFormat("DK_EA_LINKOK_%d", InpMagic)) && GlobalVariableGet(StringFormat("DK_EA_LINKOK_%d", InpMagic))!=0.0;
    string ts   = NowStamp();
-   string hbT  = (eaAge>=0) ? (AgeTxt(eaAge)+"前") : "—";
-   string tail = " / EA心拍 "+hbT+" / 自動売買"+(tradeOk?"ON":"OFF")+" / 連携"+(linkOk?"OK":"NG");
-   color  c; string main; string reasonLine = "";
-   if(eaDown)            { c=clrRed;    main = ts+"  🚨EA停止"+tail+" / EAを確認!"; }
-   else if(stuck)        { c=clrRed;    main = ts+"  🚨EXIT継続なのに保有残存"+tail+(fire?" / 決済指示発令":" / 監視中(猶予)"); }
-   else if(!marketOpen)  { c=clrSilver; main = ts+"  ⏸市場休場"+tail; }
-   else if(reasonDown)   { c=clrOrange; main = ts+"  ⚠理由ログ停止"+tail; }
-   else if(rcode>0)      { c=clrOrange; main = ts+"  ⚠EA稼働(停止理由あり)"+tail;
-                            reasonLine = "　→ "+ReasonText(rcode,lstreak); }   // ★2026-07-08変更: 1行目に詰め込まず専用行へ(画面幅で見切れ対策)
-   else                  { c=clrLime;   main = ts+"  ✅EA正常稼働"+tail+" / 異常なし"; }
+   bool   linkBlock = false;
+   string issues = LinkIssues(eaDown, eaAge, linkBlock);      // 連携NGの内訳(EA心拍切れ/本体インジ未検出/矢印GV停止/VStop停止/RRインジ停止)
+   bool   linkNg = (!linkOk) || (issues != "");
+   if(!linkOk) linkBlock = true;                              // EA自身が「連携NG」と判定している時も、新規エントリーはできない扱い
+   string link   = linkNg ? ("連携NG(" + (issues != "" ? issues : "EA判定") + ")") : "連携OK";
+   int    cat    = ReadStopCat();
+   int    cnt    = ReadStopCnt();
+   color  c; string head = "";
+   bool   blocked = false;   // ★2026-11-04(4回目): 新規エントリーができない状態か(true→先頭は「取引停止中」)
+   if(eaDown)            { c=clrRed;    head = "🚨EA停止中(EAを確認!)"; blocked = true; }
+   else if(!connected)   { c=clrRed;    head = "🚨通信断(MT5が取引サーバーに接続していません)"; blocked = true; }
+   else if(stuck)        { c=clrRed;    head = "🚨EXIT継続なのに保有残存" + (fire ? "(決済指示発令)" : "(監視中)"); }   // 新規エントリーは止まらない(警告)
+   else if(!algoOk)      { c=clrRed;    head = "🚨自動売買OFF(Ctrl+Eを確認)"; blocked = true; }
+   else if(!marketOpen)  {
+                           blocked = true;
+                           if(inSess == 1) { c=clrOrange; head = "⚠価格停止(取引時間中なのにティックが来ません " + (gotTick ? AgeTxt(staleAge) : "ティックなし") + ")"; }   // ★2026-11-04(2回目)
+                           else            { c=clrSilver; head = "⏸市場休場"; }
+                         }
+   else if(reasonDown)   { c=clrOrange; head = "⚠理由ログ停止"; }   // 取引は続く(警告)
+   else if(rcode>0)      { c=clrGold;   blocked = true;
+                           string det = StopDetail(rcode, lstreak);
+                           head = (cat>0) ? (CatName(cat) + "(" + det + ")") : det;     // 分類GVが無い古いEAでも、具体名だけは出す
+                           if(cnt>1) head += " +" + IntegerToString(cnt-1); }
+   else                  { c=clrLime; }                         // 正常: 理由の欄は出さない
+   if(linkBlock) { blocked = true; if(c!=clrRed) c = clrRed; }   // 矢印GVが止まっている等=EAは入れない→赤
+   else if(linkNg && c!=clrRed) c = clrOrange;                  // VStop/RRインジの停止は警告色(エントリーは止まらない)
+   string main = "Watchdog ： " + (blocked ? "取引停止中" : "取引中") + (head != "" ? " / " + head : "") + " / " + link;   // ★2026-11-04(4回目)
    SetLabel(LBL_MAIN, c, main);
-   SetLabel(LBL_REASON, clrOrange, reasonLine);   // ★2026-07-08追加: 空文字なら非表示(SetLabel/DrawWarnLine同様の挙動)
+   SetLabel(LBL_REASON, clrOrange, "");                         // ★2026-11-04: 3行目は廃止(旧版のラベルが残っていれば消える)
 
    // 決済指示を発令したらスマホ通知(5分再送防止)
    if(fire && (g_lastForceNotice==0 || (now-g_lastForceNotice)>=300))
@@ -269,35 +420,49 @@ void Check()
    ChartRedraw(0);
 
    // --- 通知(状態変化 or 一定間隔で再送) ---
-   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN);
+   //   ★2026-11-04(2回目): 時間計算はnowTrd(TimeTradeServer。ティックが止まっても進む)で行う。
+   //   通知対象: EA停止/reasonログ停止/自動売買OFF/通信断、および価格停止がInpStallNotifyMin分以上続いた時。
+   if(st == WD_PRICE_STALL) { if(g_stallSince == 0) g_stallSince = nowTrd; }
+   else                       g_stallSince = 0;
+   bool stallLong = (st == WD_PRICE_STALL && InpStallNotifyMin > 0 && g_stallSince > 0 &&
+                     (nowTrd - g_stallSince) >= (datetime)InpStallNotifyMin*60);
+   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN || st==WD_TRADE_OFF || st==WD_DISCONNECTED || stallLong);   // ★2026-09-09追加: WD_TRADE_OFFも通知対象
    if(isBad)
    {
-      bool changed = g_started && (st != g_prev);
+      bool changed = g_started && ((!g_prevBad) || (st != g_prev));
       bool firstBad= (!g_started);   // 起動直後から異常なら即通知
       bool resend  = (InpResendMin > 0 && g_lastAlert > 0 &&
-                      (now - g_lastAlert) >= (datetime)InpResendMin*60);
+                      (nowTrd - g_lastAlert) >= (datetime)InpResendMin*60);
       if(changed || firstBad || resend)
       {
-         string head = (st==WD_EA_DOWN) ? "【!】DokaKotsu EA停止"
-                                        : "【!】DokaKotsu reasonログ停止";
+         string head = (st==WD_EA_DOWN)       ? "【!】DokaKotsu EA停止"
+                     : (st==WD_TRADE_OFF)     ? "【!】DokaKotsu 自動売買OFF(発注不可)"   // ★2026-09-09追加
+                     : (st==WD_DISCONNECTED)  ? "【!】DokaKotsu 通信断(MT5が取引サーバーに接続していません)"   // ★2026-11-04(2回目)
+                     : (st==WD_PRICE_STALL)   ? ("【!】DokaKotsu 価格停止(取引時間中なのに最後のティックから" + (gotTick ? AgeTxt(staleAge) : "--") + ")")   // ★2026-11-04(2回目)
+                                              : "【!】DokaKotsu reasonログ停止";
          string msg  = StringFormat("%s (EA最終%s前 / reason%s前) %s JST",
                           head, AgeTxt(eaAge), AgeTxt(rsAge),
                           TimeToString(TimeLocal(), TIME_MINUTES));
          Notify(msg);
-         g_lastAlert = now;
+         g_lastAlert   = nowTrd;
+         g_notifiedBad = true;
       }
    }
    else
    {
       // 復旧通知(直前が異常 → 正常/クローズ)
-      if(InpNotifyRecover && g_started &&
-         (g_prev==WD_EA_DOWN || g_prev==WD_REASON_DOWN))
+      //   ★2026-11-04(2回目): 通知した異常は、正常(または休場)に戻った時に1回だけ復旧通知する。通信断から復帰した直後に価格がまだ来ない
+      //   (価格停止・まだ短い)間は、復旧とは言わない。通知していない短い価格停止の終了では、復旧通知は出さない。
+      if(g_notifiedBad && (st==WD_OK || st==WD_MARKET_CLOSED))
       {
-         Notify(StringFormat("【OK】DokaKotsu 復旧: %s  %s JST",
-                main, TimeToString(TimeLocal(), TIME_MINUTES)));
+         if(InpNotifyRecover && g_started)
+            Notify(StringFormat("【OK】DokaKotsu 復旧: %s  %s JST",
+                   main, TimeToString(TimeLocal(), TIME_MINUTES)));
+         g_notifiedBad = false;
       }
       g_lastAlert = 0;
    }
+   g_prevBad = isBad;
    g_prev    = st;
    g_started = true;
 }
@@ -352,22 +517,82 @@ int ReadLossStreak()
    if(!GlobalVariableCheck(nm)) return 0;
    return (int)GlobalVariableGet(nm);
 }
-//--- 停止理由コード → 表示文言(EA側 DK_StopReasonCode と対応)
-string ReasonText(int code, int streak)
+//--- ★2026-11-04: 停止の分類(EAが GV DK_EA_STOPCAT_<magic> で公開する番号 → 表示名。分類の判定はEAだけが持つ)
+string CatName(int cat)
+{
+   switch(cat)
+   {
+      case 1: return "手動停止";
+      case 2: return "成績停止";
+      case 3: return "休日";
+      case 4: return "週末";
+      case 5: return "時間帯";
+      case 6: return "経済指標";
+   }
+   return "";
+}
+int ReadStopCat()
+{
+   string nm = StringFormat("DK_EA_STOPCAT_%d", InpMagic);
+   if(!GlobalVariableCheck(nm)) return 0;
+   return (int)GlobalVariableGet(nm);
+}
+int ReadStopCnt()   // 効いている停止の数(1なら単独。2以上なら、表示した1つのほかに重なっている)
+{
+   string nm = StringFormat("DK_EA_STOPCNT_%d", InpMagic);
+   if(!GlobalVariableCheck(nm)) return 0;
+   return (int)GlobalVariableGet(nm);
+}
+//--- 停止理由コード → 具体名(EA側 DK_StopReasonCode の1〜21に全て対応。括弧の中に出す短い名前)
+string StopDetail(int code, int streak)
 {
    switch(code)
    {
-      case 1: return "オセアニア市場停止";
-      case 2: return "金曜深夜新規停止";
-      case 3: return "CPI発表前停止";
-      case 4: return "雇用統計発表前停止";
-      case 5: return "FOMC発表前停止";
-      case 6: return "米国休日停止";
-      case 7: return "日本休日停止";
-      case 8: return StringFormat("連敗%d(4で停止)", streak);
-      case 9: return "週末クローズ";
-      default: return "";
+      case 1:  return "オセアニア市場停止";
+      case 2:  return "金曜深夜";
+      case 3:  return "CPI";
+      case 4:  return "雇用統計";
+      case 5:  return "FOMC";
+      case 6:  return "米国休日";
+      case 7:  return "正月休み";
+      case 8:  return StringFormat("連敗%d", streak);
+      case 9:  return "週末クローズ前";
+      case 10: return "日次損失上限";
+      case 11: return "ISM";
+      case 12: return "PPI";
+      case 13: return "ダッシュボード";
+      case 14: return "小売売上高";
+      case 15: return "日本祝日";
+      case 16: return "NY値幅超過";
+      case 17: return "取引時間外";
+      case 18: return "PCE";
+      case 19: return "イベント予防線";
+      case 20: return "10時のみ取引停止";    // ★2026-11-05
+      case 21: return "日本市場午後停止";    // ★2026-11-05
    }
+   return "コード" + IntegerToString(code);
+}
+
+//--- ★2026-11-04: 連携先の生存確認(GV)。止まってから InpOptGoneSec(既定6時間)以内のものだけ出す(外したものを出し続けない)
+string OptIssue(const string label, const string tsName)
+{
+   if(!GlobalVariableCheck(tsName)) return "";
+   int age = (int)(TimeCurrent() - (datetime)GlobalVariableGet(tsName));
+   if(age > InpOptStaleSec && age <= InpOptGoneSec) return label + " " + AgeTxt(age);
+   return "";
+}
+//--- 連携NGの内訳(空文字=問題なし)
+string LinkIssues(const bool eaDown, const int eaAge, bool &blocking)   // blocking: 新規エントリーができなくなる内訳(EA心拍切れ/本体インジ未検出/矢印GV停止)があるか
+{
+   string s = "", x;
+   blocking = false;
+   if(eaDown) { s = "EA心拍切れ " + AgeTxt(eaAge); blocking = true; }
+   if(g_ind == INVALID_HANDLE) { s += (s != "" ? "・" : "") + "本体インジ未検出"; blocking = true; }
+   long cid = ChartID();
+   x = OptIssue("矢印GV停止",   StringFormat("DK_SIG_TS_%I64d",   cid)); if(x != "") { s += (s != "" ? "・" : "") + x; blocking = true; }   // EAは矢印GVが古い(InpSigStaleSec=180秒)と入らない
+   x = OptIssue("VStop停止",    StringFormat("DK_VSTOP_TS_%I64d", cid)); if(x != "") s += (s != "" ? "・" : "") + x;
+   x = OptIssue("RRインジ停止", StringFormat("YDS_TS_%I64d",      cid)); if(x != "") s += (s != "" ? "・" : "") + x;
+   return s;
 }
 
 //+------------------------------------------------------------------+
@@ -410,10 +635,23 @@ void CreateLabel(string name, int y, int fs, color c, string txt)
 }
 
 //+------------------------------------------------------------------+
+int LabelY(string name)
+{
+   if(name == LBL_RESCUE) return InpY + 22;   // 損切り再決済の行は、メイン表示の下
+   return InpY;
+}
+
 void SetLabel(string name, color c, string txt)
 {
+   // ★2026-11-04修正: 空文字のOBJ_LABELは、MT5が既定の「Label」を表示してしまう(左端に「Label」が出ていた原因)。
+   //   表示する内容が無い時は、ラベルごと削除する。
+   if(StringLen(txt) == 0)
+   {
+      if(ObjectFind(0, name) >= 0) ObjectDelete(0, name);
+      return;
+   }
    if(ObjectFind(0, name) < 0)
-      CreateLabel(name, InpY, InpFontSize, c, txt);
+      CreateLabel(name, LabelY(name), InpFontSize, c, txt);
    ObjectSetInteger(0, name, OBJPROP_COLOR, c);
    ObjectSetString (0, name, OBJPROP_TEXT,  txt);
 }

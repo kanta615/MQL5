@@ -1,7 +1,15 @@
 ﻿//+------------------------------------------------------------------+
-//| VolatilityStop.mq5                                               |
-//| 更新日: 2026-10-22                                               |
+//| Dokakotsu_VolatilityStop.mq5                                     |
+//| 更新日: 2026-11-03                                               |
 //| 変更履歴:                                                        |
+//|   v1.05 2026-11-03 ファイル名を変更(名称のみ。判定・表示は不変)  |
+//|         ・VolatilityStop.mq5 → Dokakotsu_VolatilityStop.mq5       |
+//|         ・通知メールの件名も Dokakotsu_VolatilityStop に変更       |
+//|         ・DokaKotsu本体との連携はGV DK_VSTOP_<チャートID>のみで、  |
+//|           ファイル名には依存しないので、連携は今までどおり動く     |
+//|         ・EAは、このGVを読んで、エントリー時のSTOP/RUNを           |
+//|           エントリーリーズン(context.vstop)に記録する              |
+//|           (GV=1→"STOP" / 0→"RUN" / 無い・古い→"NA")               |
 //|   v1.04 2026-10-22 DokaKotsuのエントリー禁止用にSTOP状態を公開    |
 //|         ・GV DK_VSTOP_<チャートID>(1=禁止マーク表示中/0=非表示)  |
 //|           と DK_VSTOP_TS_<チャートID>(最終更新)を毎回書き込む    |
@@ -28,7 +36,7 @@
 //| ※判定ロジックは本インジケーター内のみで管理する                 |
 //| ※グレー表示 = 禁止エリア（ボラティリティ不足）                  |
 //+------------------------------------------------------------------+
-#property version   "1.04"
+#property version   "1.05"
 #property indicator_chart_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -526,7 +534,7 @@ void NotifyRelease(const double atr, const double vr)
                              _Symbol, tf, atr, vr);
    if(InpSoundOn) PlaySound(SoundFileName());
    if(InpAlert)   Alert(msg);
-   if(InpMail)    SendMail("VolatilityStop: " + _Symbol, msg);
+   if(InpMail)    SendMail("Dokakotsu_VolatilityStop: " + _Symbol, msg);
    if(InpPush)    SendNotification(msg);
   }
 //+------------------------------------------------------------------+

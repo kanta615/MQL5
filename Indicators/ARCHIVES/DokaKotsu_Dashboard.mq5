@@ -7,6 +7,76 @@
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
 //|                                                                    |
+//|  ■ 修正日: 2026-10-30  修正内容(手動停止の表示を目立たせる)           |
+//|    田島さんご要望。10/30に手動停止(ダッシュボードの■)が一日中入って   |
+//|    いたのに気づけなかったため、①表示テキストを「取引停止中」→         |
+//|    「手動で停止中」に変更、②「EA稼働中」と同じタイミング(約1.6秒周期の |
+//|    位相を共通化)で点滅、③文字サイズを1周り大きく(7→9)した。          |
+//|    「EA停止中」「自動売買OFF」の表示と、停止スイッチの判定は変更なし。 |
+//|                                                                    |
+//|  ■ 修正日: 2026-10-28  修正内容(名前をDokaKotsu_Dashboardへ戻す/発表済み指標を非表示)|
+//|    ①ファイル名を DokaKotsu_monitoring.mq5 → DokaKotsu_Dashboard.mq5   |
+//|      へ戻した(田島さんご指示)。ファイル名・タイトル行・チャート上の    |
+//|      短い名前(INDICATOR_SHORTNAME)・Printのタグを DokaKotsu_Dashboard |
+//|      に統一。名前で本インジを探す他のプログラムがあれば同じ名前で見つかる。|
+//|      表示内容・オブジェクト名の接頭辞(DKD_)・判定は変更なし。           |
+//|    ②「本日の経済指標」で、すでに発表済み(HH:MMが現在のJST時刻より前)の |
+//|      指標を表示しないようにした(終わったFOMC等が残り、これから来る指標 |
+//|      が見えなかった)。新規input InpCalHidePast(既定true、falseで従来)。|
+//|      休日の行は対象外(常に表示)。全部発表済みの日は「本日の指標は       |
+//|      発表済み」と出す。日本時間0時にCalendarのファイルが翌日分へ入れ替わる。|
+//|                                                                    |
+//|  ■ 修正日: 2026-10-12  修正内容(休日を複数表示/経済指標の表示件数拡大) |
+//|    田島さんより「縦の長さが短くて経済指標を複数表示できない。現在は    |
+//|    体育の日だけ。縦を長くして表示領域を広げ、コロンブスデーも表示」。   |
+//|    ①「本日の経済指標」欄の先頭に、休日を日本(スポーツの日)・米国        |
+//|      (停止対象)・米国(参考:コロンブスデー/退役軍人の日=停止対象外)の   |
+//|      順にすべて表示。従来はHOLIDAY_JP行(日本1件)しか読んでおらず、     |
+//|      米国側のHOLIDAY/HOLIDAY_REF行は無視していた。英語のみの米国休日名 |
+//|      は表示用に日本語へ置換(DkdShortHolidayName)。判定はCalendar側。   |
+//|    ②経済指標の最大表示件数を6→12へ拡大(CAL_MAXROWS、新規input        |
+//|      InpCalMaxRows。絶対上限CAL_ROWS_HARD=24)。休日の行は別枠で加算。 |
+//|      背景パネルは件数に応じて自動で縦に伸びる(panelH=内容の高さ)。     |
+//|    ※米国(参考)行の元データは、DokaKotsu_Calendar_v7.mq5(1.78)が       |
+//|      出力するHOLIDAY_REF行。Calendar側も再コンパイルが必要。           |
+//|                                                                  |
+//|  ■ 修正日: 2026-09-22  修正内容                                  |
+//|    ①Calendarインジの改名(DokaKotsu_US_Calendar → DokaKotsu_Calendar)|
+//|      に追従。右上バッジの実在チェック(旧IsUsCalendarPresent →      |
+//|      IsCalendarPresent)の名前接頭辞を"DokaKotsu_Calendar"へ変更。   |
+//|      旧接頭辞のままだとCalendarが稼働中でも赤「未連携」表示になる。 |
+//|    ②バッジ文言を「● Calendar_連携中」「● Calendar_未連携」に変更。  |
+//|    ③本文中コメントの旧名称をDokaKotsu_Calendarへ更新(処理は不変)。 |
+//|      ※本ファイルは表示専用でロジックを持たない絶対ルールは変更なし。|
+//|      ※以下の過去の修正履歴内の旧名称は当時の記録としてそのまま残す。|
+//|                                                                  |
+//|  ■ 修正日: 2026-09-09  修正内容                                  |
+//|    「EA稼働中/取引停止中/EA停止中」の3状態が、EA心拍(IsEaAlive)と  |
+//|    手動一時停止ボタン(DK_DASH_TRADEPAUSE)しか見ておらず、MT5端末   |
+//|    側のアルゴ取引ボタンOFF(TERMINAL_TRADE_ALLOWED=false)や口座側の |
+//|    EA取引不許可(ACCOUNT_TRADE_EXPERT=false)で発注がブロックされて  |
+//|    いても(retcode 10027等)「EA稼働中」と誤表示していた問題を修正  |
+//|    (田島さん報告。Watchdog側は2026-09-09付で同種の修正を先行実装  |
+//|    済み、本ファイルも同じ考え方で追従)。TerminalInfoInteger        |
+//|    (TERMINAL_TRADE_ALLOWED)とAccountInfoInteger                    |
+//|    (ACCOUNT_TRADE_EXPERT)を本パネル自身が直接読み(EA側GVの書き    |
+//|    忘れに依存しない一箇所管理)、eaAlive=trueかつalgoOk=falseの時は |
+//|    「自動売買OFF」(赤・点滅なし)を表示するよう4状態化。            |
+//|                                                                    |
+//|  ■ 修正日: 2026-09-07  修正内容                                  |
+//|    ①ファイル名を DokaKotsu_Dashboard.mq5 → DokaKotsu_monitoring.mq5|
+//|      に変更(名称が実態と分かりづらいとのご指摘のため。            |
+//|      INDICATOR_SHORTNAMEも合わせて変更)。                        |
+//|    ②「EA稼働中」表示が、実際はDK_DASH_TRADEPAUSE(手動一時停止    |
+//|      ボタン)のON/OFFしか見ておらず、EA本体が本当に生きているかは |
+//|      一切確認していなかった問題を修正。Watchdogと同じ考え方で    |
+//|      EAが書くハートビートGV(DK_EA_HB_<magic>)の鮮度を            |
+//|      IsEaAlive()で判定し、①EA停止中(心拍なし/古い)→「EA停止中」  |
+//|      (赤・点滅なし) ②EA生存+手動停止中→「取引停止中」(赤)        |
+//|      ③EA生存+稼働中→「EA稼働中」(緑・点滅) の3状態に変更。       |
+//|      タイムアウト秒数はWatchdogのInpEaTimeoutSecと同じ考え方で   |
+//|      InpEaTimeoutSecを新設(既定90秒、Watchdogと揃えること)。     |
+//|                                                                    |
 //|  ■ 修正日: 2026-07-21(5回目)  修正内容                            |
 //|    日付(MM/DD、例:0722)表示を削除。最高値/安値更新中でない場合は   |
 //|    ラベル自体を非表示にするよう変更(ObjectDeleteで消去)。          |
@@ -289,6 +359,7 @@ input ENUM_ENTRY_DEMO InpEntryDemoState = DEMO_GET;  // 見た目確認用。既
 //--- ★2026-07-14追加: エントリータイミングを実データで動かす(モニターと同じ5ステップ判定)
 input bool InpUseRealLogic = true;   // true=実ロジックで動かす。falseにするとInpEntryDemoStateの見た目確認モードに戻る
 input long InpMagic = 20260606;      // EAのマジックナンバー(保有中判定に使用)
+input int  InpEaTimeoutSec = 90;     // ★2026-09-07追加: EA心拍(DK_EA_HB_<magic>)がこの秒数途絶したら「EA停止中」。Watchdog側InpEaTimeoutSecと同じ値に揃えること
 input double InpMeterConvMargin = 0.40; // メーターReady表示に必要な収束度の余裕(モニターのMETER_CONV_MARGINと同じ)
 
 //+------------------------------------------------------------------+
@@ -500,6 +571,8 @@ input int InpPanelX          = 0;    // パネルX位置（左からの距離）
 input int InpPanelY          = 120;  // パネルY位置（上からの距離）＝売買ボタンより下
 input int InpPanelWidth      = 320;  // パネル幅＝売買ボタンの横幅に合わせる（環境により微調整）
 input int InpPanelHeightPct  = 110;  // パネル縦幅（%）100=基準の詰まった表示／大きいほど縦に広がる
+input int InpCalMaxRows      = 12;  // ★2026-10-12追加: 「本日の経済指標」欄の最大表示件数(休日の行は別枠で加算。パネルは件数に応じて自動で縦に伸びる)
+input bool InpCalHidePast      = true;   // ★2026-10-28追加: 発表済み(HH:MMが現在のJST時刻より前)の経済指標を表示しない。falseで従来(その日の分を全部表示)
 
 #define PFX "DKD_"
 
@@ -608,9 +681,9 @@ int FindDokaKotsuHandle()
   }
 
 //+------------------------------------------------------------------+
-//| ★2026-07-15追加: DokaKotsu_US_Calendarがチャート上に存在するか判定 |
+//| ★2026-07-15追加: DokaKotsu_Calendarがチャート上に存在するか判定 |
 //+------------------------------------------------------------------+
-bool IsUsCalendarPresent()
+bool IsCalendarPresent()
   {
    int winTotal = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
    for(int w = 0; w < winTotal; w++)
@@ -619,10 +692,26 @@ bool IsUsCalendarPresent()
       for(int i = 0; i < total; i++)
         {
          string name = ChartIndicatorName(0, w, i);
-         if(StringFind(name, "DokaKotsu_US_Calendar") == 0) return true;
+         if(StringFind(name, "DokaKotsu_Calendar") == 0) return true;
         }
      }
    return false;
+  }
+
+//+------------------------------------------------------------------+
+//| ★2026-09-07追加: EAが本当に生きているかをハートビートGVの鮮度で   |
+//|   判定する(Watchdogと同じGV名・同じ考え方)。DK_DASH_TRADEPAUSEは   |
+//|   あくまで「新規停止スイッチ」であり、EAの生死とは無関係なので     |
+//|   稼働中/停止中の表示にはこちらを使う。                            |
+//+------------------------------------------------------------------+
+bool IsEaAlive()
+  {
+   string hbName = StringFormat("DK_EA_HB_%d", InpMagic);
+   if(!GlobalVariableCheck(hbName)) return false;
+   datetime hb  = (datetime)GlobalVariableGet(hbName);
+   int      age = (int)(TimeCurrent() - hb);
+   if(age < 0 || age > InpEaTimeoutSec) return false;
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -702,12 +791,13 @@ int ReadLongDirection()
    return (int)MathRound(buf[0]);
   }
 
-//--- ★2026-07-07追加: DokaKotsu_US_Calendar.mq5が書き出す当日の経済指標ファイル(共通)
+//--- ★2026-07-07追加: DokaKotsu_Calendar.mq5が書き出す当日の経済指標ファイル(共通)
 #define CAL_FILE "DokaKotsu_Calendar_Today.txt"
-#define CAL_MAXROWS 6   // パネルに表示する最大件数(多すぎて縦に伸びすぎないよう上限)
+#define CAL_MAXROWS 12      // ★2026-10-12変更: 6→12。経済指標の既定の表示件数(複数指標が出る日に6件で切れていた)
+#define CAL_ROWS_HARD 24    // ★2026-10-12追加: 経済指標の表示件数の絶対上限(InpCalMaxRowsはこの値まで)
 
 //+------------------------------------------------------------------+
-//| サーバー時間→JSTのオフセット秒(DokaKotsu_US_Calendar.mq5と同じ考え方) |
+//| サーバー時間→JSTのオフセット秒(DokaKotsu_Calendar.mq5と同じ考え方) |
 //+------------------------------------------------------------------+
 int ServerToJstShiftDKD()
   {
@@ -717,7 +807,7 @@ int ServerToJstShiftDKD()
   }
 
 //+------------------------------------------------------------------+
-//| ★2026-07-07追加: DokaKotsu_US_Calendar.mq5が書き出したテキストを読み、  |
+//| ★2026-07-07追加: DokaKotsu_Calendar.mq5が書き出したテキストを読み、  |
 //| 「今日」の分だけラベル・JST時刻を配列で返す(件数を返り値に)              |
 //+------------------------------------------------------------------+
 int ReadTodayEconEvents(string &labels[], string &hhmms[])
@@ -747,7 +837,7 @@ int ReadTodayEconEvents(string &labels[], string &hhmms[])
         }
       string parts[];
       int cnt = StringSplit(line, '|', parts);
-      if(cnt >= 4 && parts[0] == "EVENT" && dateOk && n < CAL_MAXROWS)
+      if(cnt >= 4 && parts[0] == "EVENT" && dateOk && n < MathMin(MathMax(InpCalMaxRows, 1), CAL_ROWS_HARD))
         {
          ArrayResize(labels, n + 1);
          ArrayResize(hhmms,  n + 1);
@@ -761,7 +851,7 @@ int ReadTodayEconEvents(string &labels[], string &hhmms[])
   }
 
 //+------------------------------------------------------------------+
-//| ★2026-07-20(2回目)追加: DokaKotsu_US_Calendar.mq5(v6)がCAL_FILEへ  |
+//| ★2026-07-20(2回目)追加: DokaKotsu_Calendar.mq5(v6)がCAL_FILEへ  |
 //|   書き出す"HOLIDAY_JP|名前|時刻表記"行を読む。判定ロジックは        |
 //|   Calendar側のみに存在し、ここでは名前と時刻表記を読むだけ。         |
 //+------------------------------------------------------------------+
@@ -803,6 +893,104 @@ bool ReadTodayJpHoliday(string &name, string &hhmm)
   }
 
 //+------------------------------------------------------------------+
+//| ★2026-10-12追加: 休日名の表示用に短くする。                          |
+//|   ・日本語を含む名前は「 (」以降(英語併記)を落とす                    |
+//|     例: コロンブスデー (Columbus Day) → コロンブスデー              |
+//|   ・英語のみの米国休日名(MT5カレンダー由来)は日本語名へ置換          |
+//|   表示用の置換だけで、休日の判定ロジックは持たない。                   |
+//+------------------------------------------------------------------+
+string DkdShortHolidayName(const string raw)
+  {
+   string n = raw;
+   StringTrimLeft(n);
+   StringTrimRight(n);
+   bool hasJa = false;
+   for(int i = 0; i < StringLen(n); i++)
+     {
+      if(StringGetCharacter(n, i) >= 0x3000) { hasJa = true; break; }
+     }
+   if(hasJa)
+     {
+      int p = StringFind(n, " (");
+      if(p > 0) n = StringSubstr(n, 0, p);
+      return n;
+     }
+   string low = n;
+   StringToLower(low);
+   if(StringFind(low, "columbus")      >= 0) return "コロンブスデー";
+   if(StringFind(low, "veterans")      >= 0) return "退役軍人の日";
+   if(StringFind(low, "labor day")     >= 0) return "レイバーデー";
+   if(StringFind(low, "memorial")      >= 0) return "メモリアルデー";
+   if(StringFind(low, "independence")  >= 0) return "独立記念日";
+   if(StringFind(low, "thanksgiving")  >= 0) return "感謝祭";
+   if(StringFind(low, "christmas")     >= 0) return "クリスマス";
+   if(StringFind(low, "new year")      >= 0) return "元日";
+   if(StringFind(low, "martin luther") >= 0) return "マーティン・ルーサー・キング・デー";
+   if(StringFind(low, "presidents")    >= 0) return "大統領の日";
+   if(StringFind(low, "washington")    >= 0) return "大統領の日";
+   if(StringFind(low, "juneteenth")    >= 0) return "ジューンティーンス";
+   if(StringFind(low, "good friday")   >= 0) return "聖金曜日";
+   return n;
+  }
+
+//+------------------------------------------------------------------+
+//| ★2026-10-12追加: 米国の休日をCAL_FILEから読む(日本の祝日と並べて表示する)。|
+//|   HOLIDAY      行=米国休日(取引停止の対象) → 名前と停止開始JST時刻       |
+//|   HOLIDAY_REF  行=参考の米国休日(コロンブスデー/退役軍人の日)         |
+//|                   → 「停止対象外」と表示                              |
+//|   判定はCalendarインジ側のみ。ここでは書き出された名前を読むだけ。       |
+//+------------------------------------------------------------------+
+int ReadTodayExtraHolidays(string &names[], string &times[])
+  {
+   ArrayResize(names, 0);
+   ArrayResize(times, 0);
+   int h = FileOpen(CAL_FILE, FILE_READ|FILE_TXT|FILE_UNICODE|FILE_COMMON);
+   if(h == INVALID_HANDLE)
+      return 0;
+   int shift = ServerToJstShiftDKD();
+   datetime jstNow = TimeTradeServer() + shift;
+   if(jstNow <= 0) jstNow = TimeCurrent() + shift;
+   string todayTag = TimeToString(jstNow, TIME_DATE);
+   bool dateOk = false;
+   int  n = 0;
+   while(!FileIsEnding(h))
+     {
+      string line = FileReadString(h);
+      if(line == "")
+         continue;
+      if(StringFind(line, "DATE=") == 0)
+        {
+         dateOk = (StringSubstr(line, 5) == todayTag);
+         continue;
+        }
+      if(!dateOk)
+         continue;
+      string parts[];
+      int cnt = StringSplit(line, '|', parts);
+      if(cnt >= 7 && parts[0] == "HOLIDAY" && parts[1] == "1")
+        {
+         datetime st = (datetime)StringToInteger(parts[5]);   // 停止開始(サーバー時刻)
+         string nm = DkdShortHolidayName(parts[4]);
+         ArrayResize(names, n + 1);
+         ArrayResize(times, n + 1);
+         names[n] = (nm == "米国休日") ? nm : ("米国 " + nm);
+         times[n] = (st > 0) ? (TimeToString(st + shift, TIME_MINUTES) + "〜") : "停止対象";
+         n++;
+        }
+      else if(cnt >= 3 && parts[0] == "HOLIDAY_REF")
+        {
+         ArrayResize(names, n + 1);
+         ArrayResize(times, n + 1);
+         names[n] = "米国(参考) " + DkdShortHolidayName(parts[2]);
+         times[n] = "停止対象外";
+         n++;
+        }
+     }
+   FileClose(h);
+   return n;
+  }
+
+//+------------------------------------------------------------------+
 //| ★2026-07-21追加: 経済指標ファイル(CAL_FILE)の60秒キャッシュ。      |
 //|   従来は毎秒2回ファイルを開いて読んでいた(負荷+黒点滅の一因)。     |
 //|   内容は日次でしか変わらないため60秒ごとの再読込で十分。           |
@@ -816,6 +1004,9 @@ string g_calHhmm[];
 bool   g_calJpFound    = false;
 string g_calJpName     = "";
 string g_calJpHhmm     = "";
+int    g_calExtraCount = 0;      // ★2026-10-12追加: 米国休日(停止対象/参考)の行数
+string g_calExtraNames[];
+string g_calExtraTimes[];
 
 void RefreshCalendarCacheIfStale()
   {
@@ -825,6 +1016,7 @@ void RefreshCalendarCacheIfStale()
    g_calCacheMs   = nowMs;
    g_calCount   = ReadTodayEconEvents(g_calLabels, g_calHhmm);
    g_calJpFound = ReadTodayJpHoliday(g_calJpName, g_calJpHhmm);
+   g_calExtraCount = ReadTodayExtraHolidays(g_calExtraNames, g_calExtraTimes);   // ★2026-10-12追加
   }
 
 
@@ -926,12 +1118,12 @@ void CreatePanel()
 
    // タイトル + バッジ（バッジは右揃え）
    CreateLabelText("title",x+pad,curY,"DokaKotsu",COL_TEXT,9);
-   // ★2026-07-15変更: 固定「EA稼働中」から、DokaKotsu_US_Calendarの実在チェックへ変更
-   bool calOnChart = IsUsCalendarPresent();
+   // ★2026-07-15変更: 固定「EA稼働中」から、DokaKotsu_Calendarの実在チェックへ変更
+   bool calOnChart = IsCalendarPresent();
    if(calOnChart)
-      CreateLabelText("badge",rightEdge,curY+1,"● US_Calendar _連携中",COL_GREEN,7,"Arial",ANCHOR_RIGHT_UPPER);
+      CreateLabelText("badge",rightEdge,curY+1,"● Calendar_連携中",COL_GREEN,7,"Arial",ANCHOR_RIGHT_UPPER);
    else
-      CreateLabelText("badge",rightEdge,curY+1,"● US_Calendar_未連携",COL_RED,7,"Arial",ANCHOR_RIGHT_UPPER);
+      CreateLabelText("badge",rightEdge,curY+1,"● Calendar_未連携",COL_RED,7,"Arial",ANCHOR_RIGHT_UPPER);
    curY+=(int)(38*sc);
 
    // ロット / TOTAL pips（★2026-07-15(4回目)変更: 「0.1 Lot」を■(取引停止)/▶(復活)ボタンに置き換え）
@@ -942,16 +1134,48 @@ void CreatePanel()
    int btnSize=(int)(30*sc);   // ★2026-07-15(5回目)変更: 20→30(1.5倍)
    CreateButtonObj("btnstop",x+pad+8,           curY+(lotboxH-btnSize)/2,btnSize,btnSize,"■",C'200,40,40',COL_TEXT,C'160,20,20',11);
    CreateButtonObj("btnplay",x+pad+8+btnSize+6, curY+(lotboxH-btnSize)/2,btnSize,btnSize,">",C'0,140,120',COL_TEXT,C'0,100,90',13);   // ★2026-07-15(6回目)変更: ▶が文字化けするため">"に変更
-   string pauseTxt = dashPaused ? "取引停止中" : "EA稼働中";   // ★2026-07-15(7回目)変更: 「稼働中」→「EA稼働中」
-   color  pauseCol = dashPaused ? COL_RED : COL_GREEN;
-   if(!dashPaused)
+   // ★2026-09-07変更: DK_DASH_TRADEPAUSE(手動停止スイッチ)だけでなく、EA心拍(IsEaAlive)も見て
+   //   「EA停止中/取引停止中/EA稼働中」の3状態を正しく区別する(旧ロジックはEAが実際に死んでいても
+   //   手動停止していなければ「EA稼働中」と表示してしまっていた)。
+   // ★2026-09-09追加: EA心拍が生きていても、MT5端末側のアルゴ取引ボタンOFFや口座側のEA取引
+   //   不許可で発注がブロックされている場合がある(retcode 10027等)。Watchdogと同じ考え方で、
+   //   TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)とAccountInfoInteger(ACCOUNT_TRADE_EXPERT)を
+   //   本パネル自身が直接読み(EA側GVの書き忘れに依存しない一箇所管理)、手動停止とは別の
+   //   「自動売買OFF」状態として区別表示する。
+   bool   eaAlive  = IsEaAlive();
+   bool   algoOk   = (bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && (bool)AccountInfoInteger(ACCOUNT_TRADE_EXPERT);   // ★2026-09-09追加
+   string pauseTxt; color pauseCol;
+   // ★2026-10-30追加: 点滅の位相を1か所にまとめる(約1.6秒周期)。「EA稼働中」と「手動で停止中」が同じタイミングで点滅する。
+   bool blinkOn = (((int)(GetTickCount()/800)) % 2 == 0);
+   int  pauseFont = 7;   // 通常の文字サイズ。「手動で停止中」だけ1周り大きくする
+   if(!eaAlive)
      {
-      // ★2026-07-15(7回目)追加: ゆっくり点滅(約1.6秒周期)。専用タイマーは追加せず、
-      //   既存の1秒更新の中でGetTickCount()の位相だけ見て色を背景色に落とす=負荷を増やさない
-      bool blinkOn = (((int)(GetTickCount()/800)) % 2 == 0);
+      pauseTxt = "EA停止中";
+      pauseCol = COL_RED;   // EA自体が死んでいる場合は点滅させない(誤って正常に見えないように)
+     }
+   else if(!algoOk)
+     {
+      pauseTxt = "自動売買OFF";   // ★2026-09-09追加: アルゴ取引ボタン(Ctrl+E)/口座設定を確認
+      pauseCol = COL_RED;
+     }
+   else if(dashPaused)
+     {
+      // ★2026-10-30変更: 「取引停止中」→「手動で停止中」。EA稼働中と同じ位相で点滅し、文字を1周り大きく(7→9)して気づきやすくする
+      //   (10/30に手動停止が一日中入っていたことに気づけなかったため)。
+      pauseTxt  = "手動で停止中";
+      pauseCol  = COL_RED;
+      pauseFont = 9;
       if(!blinkOn) pauseCol = COL_BG;
      }
-   CreateLabelText("pausestate",x+pad+8+btnSize*2+16,curY+(int)(9*sc),pauseTxt,pauseCol,7);
+   else
+     {
+      pauseTxt = "EA稼働中";
+      pauseCol = COL_GREEN;
+      // ★2026-07-15(7回目)追加: ゆっくり点滅(約1.6秒周期)。専用タイマーは追加せず、
+      //   既存の1秒更新の中でGetTickCount()の位相だけ見て色を背景色に落とす=負荷を増やさない
+      if(!blinkOn) pauseCol = COL_BG;
+     }
+   CreateLabelText("pausestate",x+pad+8+btnSize*2+16,curY+(int)(9*sc)-(pauseFont>7?2:0),pauseTxt,pauseCol,pauseFont);   // ★2026-10-30: 大きい文字は縦位置を2px上げて中央に寄せる
    // ★2026-07-21(5回目)修正: 日付(MM/DD)表示を削除。更新中でない時は何も表示しない(非表示)。
    double totDayHigh = iHigh(_Symbol, PERIOD_D1, 0);
    double totDayLow  = iLow(_Symbol, PERIOD_D1, 0);
@@ -1268,24 +1492,66 @@ void CreatePanel()
    ArrayCopy(evLabels, g_calLabels);
    ArrayCopy(evHhmm,   g_calHhmm);
    int evCount = g_calCount;
+   int evTotalBeforeFilter = evCount;   // 「発表済みで全部消えた」と「そもそも無い」を区別して、下の空表示の文言を変える
+   // ★2026-10-28追加: 発表済み(HH:MMが現在のJST時刻より前)の指標は出さない。終わったFOMC等が「本日の経済指標」に残り、
+   //   これから来る指標が見えなかった(日本時間0時にCalendarのファイルが翌日分へ入れ替わる)。
+   if(InpCalHidePast && evCount > 0)
+     {
+      datetime jstNow = TimeTradeServer() + ServerToJstShiftDKD();
+      if(jstNow <= 0) jstNow = TimeCurrent() + ServerToJstShiftDKD();
+      MqlDateTime jn; TimeToStruct(jstNow, jn);
+      string nowHm = StringFormat("%02d:%02d", jn.hour, jn.min);
+      int w = 0;
+      for(int ei = 0; ei < evCount; ei++)
+        {
+         if(evHhmm[ei] >= nowHm)   // HH:MM同士の文字列比較。これから来る指標だけ残す
+           { evLabels[w] = evLabels[ei]; evHhmm[w] = evHhmm[ei]; w++; }
+        }
+      ArrayResize(evLabels, w);
+      ArrayResize(evHhmm,   w);
+      evCount = w;
+     }
 
    // ★2026-07-20(2回目)修正: 前回追加した専用の赤/オレンジ行は削除。
    //   日本の祝日は経済指標と同じ並び(白文字・同じセル)の先頭に差し込む方式に変更。
-   //   判定ロジックはDokaKotsu_US_Calendar.mq5(v6)側のみに存在し、ここでは
+   //   判定ロジックはDokaKotsu_Calendar.mq5(v6)側のみに存在し、ここでは
    //   同ファイルが監査用CAL_FILEへ書き出す"HOLIDAY_JP"行の名前を読むだけ。
    string jpHolName = g_calJpName, jpHolHhmm = g_calJpHhmm;   // ★2026-07-21変更: 60秒キャッシュから取得
+   // ★2026-10-12変更: 休日を「日本」「米国(停止対象)」「米国(参考)」の順にすべて、経済指標の先頭へ差し込む。
+   //   従来は日本の祝日1件だけで、米国側(コロンブスデー等)は読んでいなかった。判定ロジックはCalendarインジ側のみ。
+   string hlLabels[], hlTimes[];
+   int    hlCount = 0;
    if(g_calJpFound && jpHolName != "")
      {
-      ArrayResize(evLabels, evCount + 1);
-      ArrayResize(evHhmm,   evCount + 1);
-      for(int i = evCount; i > 0; i--)
+      ArrayResize(hlLabels, hlCount + 1);
+      ArrayResize(hlTimes,  hlCount + 1);
+      hlLabels[hlCount] = "日本 " + DkdShortHolidayName(jpHolName);
+      hlTimes[hlCount]  = jpHolHhmm;
+      hlCount++;
+     }
+   for(int xi = 0; xi < g_calExtraCount; xi++)
+     {
+      ArrayResize(hlLabels, hlCount + 1);
+      ArrayResize(hlTimes,  hlCount + 1);
+      hlLabels[hlCount] = g_calExtraNames[xi];
+      hlTimes[hlCount]  = g_calExtraTimes[xi];
+      hlCount++;
+     }
+   if(hlCount > 0)
+     {
+      ArrayResize(evLabels, evCount + hlCount);
+      ArrayResize(evHhmm,   evCount + hlCount);
+      for(int i = evCount - 1; i >= 0; i--)
         {
-         evLabels[i] = evLabels[i-1];
-         evHhmm[i]   = evHhmm[i-1];
+         evLabels[i + hlCount] = evLabels[i];
+         evHhmm[i + hlCount]   = evHhmm[i];
         }
-      evLabels[0] = jpHolName;
-      evHhmm[0]   = jpHolHhmm;
-      evCount++;
+      for(int k = 0; k < hlCount; k++)
+        {
+         evLabels[k] = hlLabels[k];
+         evHhmm[k]   = hlTimes[k];
+        }
+      evCount += hlCount;
      }
    // ★前バージョンで作成していたオブジェクトが残っていた場合の掃除
    ObjectDelete(0, PFX+"jphol");
@@ -1294,7 +1560,7 @@ void CreatePanel()
    if(evCount == 0)
      {
       CreateRectLabel("calempty",x+pad,curY,innerW,calH,COL_CELL,COL_CELL,1);
-      CreateLabelText("calemptytxt",x+pad+6,curY+calH/2-7,"本日は該当指標なし",COL_GRAY2,calEmptyFont);
+      CreateLabelText("calemptytxt",x+pad+6,curY+calH/2-7,(evTotalBeforeFilter > 0 ? "本日の指標は発表済み" : "本日は該当指標なし"),COL_GRAY2,calEmptyFont);
       curY+=calH+(int)(14*sc);
      }
    else
@@ -1315,7 +1581,7 @@ void CreatePanel()
 
    //--- ★2026-07-07追加: 前回より件数が減った場合、余った行オブジェクトが
    //    消えずに前日分の文字列のまま残ってしまうのを防ぐ(掃除)
-   for(int i=evCount; i<CAL_MAXROWS; i++)
+   for(int i=evCount; i<CAL_ROWS_HARD+6; i++)
      {
       ObjectDelete(0, PFX+"calrow"+IntegerToString(i));
       ObjectDelete(0, PFX+"cal"+IntegerToString(i)+"a");

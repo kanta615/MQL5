@@ -1,6 +1,20 @@
 ﻿//+------------------------------------------------------------------+
 //|                                       DokaKotsu_Calendar.mq5     |
-//| ★更新日: 2026-10-12 (v7)  ★変更履歴(最新が最上段)                |
+//| ★更新日: 2026-11-05 (v7)  ★変更履歴(最新が最上段)                |
+//|  ・2026-11-05: 指標の分類を「ここ1か所」に統一(田島さんご指示)。         |
+//|    ①EAが使う指標の発表時刻を、GlobalVariableで渡す(EAは自分で分類しない):|
+//|      DK_CAL_EV_<種別>_<番号>_<magic>(種別1=CPI/2=雇用統計/3=ISM/4=FOMC/    |
+//|      5=PPI/6=小売売上高/7=PCE、番号0〜2=発表時刻の昇順。サーバー時間の       |
+//|      UNIX秒。0=なし)、DK_CAL_EV_TS_<magic>(書き出し時刻=生存確認)。       |
+//|      ダッシュボードが読むファイルと同じ分類結果(同じイベント配列)から作る  |
+//|      =出どころが同じ。                                                  |
+//|    ②「雇用統計」の分類を厳しくした: ADP雇用統計(ADP Nonfarm Employment    |
+//|      Change)と非農業部門労働生産性(Nonfarm Productivity)を雇用統計から    |
+//|      除外(従来は"NONFARM"を含むだけで雇用統計にしていた)。本物の雇用統計は |
+//|      Nonfarm Payrolls/非農業部門雇用者数。                                |
+//|    ③InpResumeHourJST/MinJSTの既定をEAに合わせて9:00に(米国休日の         |
+//|      フォールバック表示用。従来8:58)。                                   |
+//|  ・2026-10-12 (v7)                                                      |
 //|  ・2026-10-12: 取引停止の対象外だが参考表示する米国の連邦祝日        |
 //|    (コロンブスデー/退役軍人の日)の名前を、カレンダー出力ファイル      |
 //|    DokaKotsu_Calendar_Today.txtへ"HOLIDAY_REF|US|名前|..."行で書き出す。|
@@ -85,7 +99,7 @@
 //|           これまで通りこのファイルに一本化されたまま)。              |
 //+------------------------------------------------------------------+
 #property copyright   "Custom Indicator"
-#property version     "1.78"
+#property version     "1.79"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -111,8 +125,8 @@ input bool   InpShowUSHoliday    = true;         // 米国休日を表示する�
 input color  InpHolidayColor     = clrOrange;    // 米国休日(予定)の表示色
 input color  InpHolidayActiveColor = clrRed;     // 米国休日(現在停止中)の表示色
 input int    InpUSHolStopHourJST = 14;           // EAの米国休日新規停止時刻(JST・時)。EA未連携時のフォールバック表示用
-input int    InpResumeHourJST    = 8;            // EAのオセアニア再開時刻(JST・時)。フォールバック時の解除時刻計算用
-input int    InpResumeMinJST     = 58;           // EAのオセアニア再開時刻(JST・分)。フォールバック時の解除時刻計算用
+input int    InpResumeHourJST    = 9;            // EAのオセアニア再開時刻(JST・時)。フォールバック時の解除時刻計算用(★2026-11-05: EAに合わせて9:00。旧8)
+input int    InpResumeMinJST     = 0;            // EAのオセアニア再開時刻(JST・分)。フォールバック時の解除時刻計算用(★2026-11-05: EAに合わせて0。旧58)
 
 //--- 入力パラメーター（日本の祝日表示・停止判定用GV出力）★2026-07-20追加
 input bool   InpShowJPHoliday      = true;         // 日本の祝日を表示・GV出力するか
@@ -135,6 +149,10 @@ input int    InpEALinkFreshSec   = 120;          // EA心拍(DK_EA_HB)がこの�
 #define GV_JPHOL_ACTIVE(m) StringFormat("DK_CAL_JPHOL_ACTIVE_%d", m)
 #define GV_JPHOL_START(m)  StringFormat("DK_CAL_JPHOL_START_%d",  m)
 #define GV_JPHOL_END(m)    StringFormat("DK_CAL_JPHOL_END_%d",    m)
+//--- ★2026-11-05追加: EAが使う「指標の発表時刻」。種別k(1=CPI/2=雇用統計/3=ISM/4=FOMC/5=PPI/6=小売売上高/7=PCE)×番号i(0〜2)。
+//    値=発表時刻(サーバー時間のUNIX秒。0=なし)。分類はこのインジだけが行い、EAは読むだけ(ダッシュボードと同じ出どころ)。
+#define GV_EV(k,i,m)       StringFormat("DK_CAL_EV_%d_%d_%d", k, i, m)
+#define GV_EV_TS(m)        StringFormat("DK_CAL_EV_TS_%d", m)
 
 //--- ★2026-07-20追加: 日本祝日判定結果(DetermineAndPublishJPHolidayが設定)。
 //    パネル表示・JSON出力のためインジ内部で使い回すだけの保持用。
@@ -271,9 +289,18 @@ string ClassifyEvent(const string rawName)
      }
 
    //--- 雇用統計（NFP）
-   if(StringFind(n, "NONFARM") >= 0 || StringFind(n, "NON-FARM") >= 0 ||
-      StringFind(n, "NFP") >= 0 || StringFind(rawName, "非農業部門雇用者数") >= 0)
+   //    ★2026-11-05修正: "NONFARM"を含むだけだと、ADP雇用統計(ADP Nonfarm Employment Change・水曜)と
+   //    非農業部門労働生産性(Nonfarm Productivity・木曜)まで雇用統計にしてしまい、本物の雇用統計(金曜)の前日までEAが停止していた。
+   //    ADP・生産性は雇用統計から外す(対象外のまま。必要なら別カテゴリを作る)。
+   bool isAdpOrProd = (StringFind(n, "ADP") >= 0 || StringFind(n, "PRODUCTIVITY") >= 0 ||
+                       StringFind(rawName, "生産性") >= 0 || StringFind(rawName, "ＡＤＰ") >= 0);
+   if(!isAdpOrProd &&
+      (StringFind(n, "NONFARM") >= 0 || StringFind(n, "NON-FARM") >= 0 || StringFind(n, "NON FARM") >= 0 ||
+       StringFind(n, "NFP") >= 0 || StringFind(n, "PAYROLL") >= 0 ||
+       StringFind(rawName, "非農業部門雇用者数") >= 0 || StringFind(rawName, "雇用統計") >= 0))
       return "雇用統計";
+   if(isAdpOrProd && (StringFind(n, "NONFARM") >= 0 || StringFind(n, "NON-FARM") >= 0 || StringFind(rawName, "非農業") >= 0 || StringFind(rawName, "雇用統計") >= 0))
+      return "";   // ADP雇用統計・非農業部門労働生産性は対象外(他のカテゴリ判定へ落とさない)
 
    //--- CPI
    if(StringFind(n, "CPI") >= 0 || StringFind(n, "CONSUMER PRICE") >= 0 ||
@@ -1059,6 +1086,47 @@ string JsonEscape(const string s)
 //|   表示に一切影響しない。JSON出力(=Python/DB連携)専用の独立処理。      |
 //|   これにより、FOMC等の先の予定も「その日が来る前」からDBへ貯められる。|
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| ★2026-11-05追加: EA用に、指標の発表時刻をGlobalVariableで渡す。                          |
+//|   分類(ClassifyEvent)はこのインジ1か所。EAは読むだけ(自分で名前を判定しない)。           |
+//|   evTimes(サーバー時間・昇順)とevLabelsは、ダッシュボードが読むファイルと同じ配列から。  |
+//|   EAが必要とする範囲(今から前後30時間)の、種別ごとの発表時刻を最大3件ずつ。           |
+//+------------------------------------------------------------------+
+int EventKindId(const string label)
+  {
+   if(label == "CPI")        return 1;
+   if(label == "雇用統計")   return 2;
+   if(label == "ISM")        return 3;
+   if(label == "FOMC")       return 4;
+   if(label == "PPI")        return 5;
+   if(label == "小売売上高") return 6;
+   if(label == "PCE")        return 7;
+   return 0;
+  }
+
+void PublishEventGVs(const datetime &evTimes[], const string &evLabels[], const int n)
+  {
+   datetime nowS = TimeCurrent();                 // EAと同じ時計(サーバー時間)
+   datetime from = nowS - 30*3600, to = nowS + 30*3600;
+   datetime slot[8][3];
+   for(int k = 0; k < 8; k++) for(int i = 0; i < 3; i++) slot[k][i] = 0;
+   int cnt[8];
+   ArrayInitialize(cnt, 0);
+   for(int i = 0; i < n; i++)                     // evTimesは昇順
+     {
+      int k = EventKindId(evLabels[i]);
+      if(k == 0) continue;
+      if(evTimes[i] < from || evTimes[i] > to) continue;
+      if(cnt[k] >= 3) continue;
+      slot[k][cnt[k]] = evTimes[i];
+      cnt[k]++;
+     }
+   for(int k = 1; k <= 7; k++)                    // 0クリアせず、値を直接上書きする(EAが読む途中で全部0に見える瞬間を作らない)
+      for(int i = 0; i < 3; i++)
+         GlobalVariableSet(GV_EV(k, i, InpMagic), (double)slot[k][i]);
+   GlobalVariableSet(GV_EV_TS(InpMagic), (double)nowS);
+  }
+
 void SaveWideCalendarJson(int shift, datetime jstDayStart, int lookBackDays, int lookAheadDays)
   {
    datetime serverFrom = jstDayStart - shift - (datetime)lookBackDays * 86400;
@@ -1117,6 +1185,7 @@ void SaveWideCalendarJson(int shift, datetime jstDayStart, int lookBackDays, int
             int      ii = evImportance[a]; evImportance[a] = evImportance[b]; evImportance[b] = ii;
            }
 
+   PublishEventGVs(evTimes, evLabels, n);   // ★2026-11-05: EA用に発表時刻をGVで渡す(分類はこのインジだけ)
    SaveCalendarToJson(jstDayStart, evTimes, evLabels, evImportance, n, shift);   // 既存の書き出し関数をそのまま再利用(各イベント自身の日付を使う実装のため広範囲でも正しく書ける)
   }
 
