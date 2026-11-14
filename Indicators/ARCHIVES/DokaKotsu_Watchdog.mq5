@@ -1,9 +1,28 @@
 ﻿//+------------------------------------------------------------------+
 //|                         DokaKotsu_Watchdog.mq5                   |
-//|  バージョン : v1.8 (時間帯の停止の名前を追加)                     |
+//|  バージョン : v2.1 (矢印GV停止を常に検知・連携NGの通知)            |
 //|  更新日時   : 2026-11-04 (JST・2回目)                             |
 //|------------------------------------------------------------------|
 //|  ■ 変更履歴                                                     |
+//|   ○ 2026-11-09 11/9の朝、EAが08:00から11:40まで、矢印GVが古いために      |
+//|      エントリーを見送り続けたのに、Watchdogが何も出さなかった問題の修正。       |
+//|      原因: 連携先のGVは「止まってから6時間を超えたものは外したとみなして出さない」|
+//|      仕様(InpOptGoneSec)を、本体インジの矢印GVにも当てていた。週末明けは、最後の  |
+//|      更新が土曜のため48時間以上古く、「矢印GV停止」が表示されなかった。          |
+//|      ①矢印GV(DK_SIG_TS)は、6時間の上限なしで、市場が開いている間は常に検知する。 |
+//|        (VStop・RRインジは従来どおり6時間まで)                                  |
+//|      ②新規エントリーができない連携NG(矢印GV停止・本体インジ未検出・EAの連携NG判定)|
+//|        が InpLinkNotifyMin(既定3分)続いたら、スマホへ通知する(0=通知しない)。     |
+//|   ○ 2026-11-06 「動きが鈍い」の見える化。最新ティックの時刻(TimeCurrent)と、  |
+//|      最新のM1足の開始時刻の差=「足の遅れ」を測る(通常0〜60秒)。InpLagWarnSec |
+//|      (既定150秒)を超えたら、連携NGの内訳に「処理遅れ ○分」を出す(橙。エントリー|
+//|      は止めない)。InpLagNotifyMin(既定5分)続いたらスマホ通知(0=通知しない)。  |
+//|      原因: 同じ銘柄のスレッドが、インジの計算で詰まると、足の更新が遅れる。     |
+//|      ティックの受信(TimeCurrent)は進むので、差が開く。                        |
+//|   ○ 2026-11-05(2回目) 指標(雇用統計など)の停止の出どころを、ダッシュボードと |
+//|      同じCalendarインジに統一したのに合わせ、Calendarインジが止まって       |
+//|      EAが従来の直接判定に切り替わっている時(GV DK_EA_EVSRC=2)は、           |
+//|      連携NGの内訳に「カレンダー連携切れ」を出す(エントリーは止めない=橙)。   |
 //|   ○ 2026-11-05 田島さんご指示。毎日の時間帯の停止の名前を表示に追加:       |
 //|      「オセアニア市場停止」(4:00〜8:59)・「10時のみ取引停止」(10:00〜10:59)・|
 //|      「日本市場午後停止」(13:00〜18:59)。分類は「時間帯」。例:              |
@@ -103,7 +122,7 @@
 //|       DK_EA_LOSSSTREAK_<magic> … 連敗数(連敗表示用)              |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.80"
+#property version   "2.10"
 #property strict
 #property indicator_chart_window
 #property indicator_plots   0
@@ -130,6 +149,9 @@ input bool   InpNotifyRecover  = true;      // 復旧時も通知するか
 input int    InpRescueShowMin  = 5;         // 損切り再決済を検知したら、この分数だけ2行目に表示
 input bool   InpHideOhlc       = true;      // ★2026-11-04: チャート左上のMT5標準の見出しから価格(OHLC)を消す(外した時は元の設定へ戻す)
 input int    InpOptStaleSec    = 180;       // ★2026-11-04: 連携先(矢印GV/VolatilityStop/RRインジ)の生存確認がこの秒数より古ければ、連携NGの内訳に出す
+input int    InpLinkNotifyMin  = 3;         // ★2026-11-09: 新規エントリーができない連携NG(矢印GV停止など)がこの分数続いたらスマホ通知(0=通知しない)
+input int    InpLagWarnSec     = 150;       // ★2026-11-06: 足の遅れ(最新ティックの時刻−最新M1足の開始時刻)がこの秒数を超えたら「処理遅れ」と出す(0=無効)
+input int    InpLagNotifyMin   = 5;         // ★2026-11-06: 処理遅れがこの分数以上続いたらスマホ通知(0=通知しない)
 input int    InpStallNotifyMin = 10;        // ★2026-11-04(2回目): 「価格停止」(取引時間中のティック無し)がこの分数続いたらスマホ通知(0=通知しない)
 input int    InpOptGoneSec     = 21600;     // ★2026-11-04: 上より古く、この秒数も超えたものは「外した」とみなして出さない(既定6時間)
 //--- ★決済の安全網(見張り+緊急ブザー)
@@ -138,11 +160,14 @@ input bool   InpForceExit      = true;      // ★EXIT継続なのに保有残�
 input int    InpStuckGraceSec  = 20;        // ★その状態がこの秒数続いたら決済指示を発令(EAの自力決済を待つ猶予)
 
 //--- 状態
-enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3, WD_TRADE_OFF=4, WD_DISCONNECTED=5, WD_PRICE_STALL=6 };   // ★2026-11-04(2回目): 通信断/価格停止を追加  // ★2026-09-09追加: WD_TRADE_OFF(自動売買OFF)
+enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3, WD_TRADE_OFF=4, WD_DISCONNECTED=5, WD_PRICE_STALL=6, WD_LAG=7, WD_LINK=8 };   // ★2026-11-09: 連携NG(新規エントリー不可)を追加   // ★2026-11-06: 処理遅れを追加   // ★2026-11-04(2回目): 通信断/価格停止を追加  // ★2026-09-09追加: WD_TRADE_OFF(自動売買OFF)
 WD_STATE  g_prev      = WD_OK;
 datetime  g_lastAlert = 0;
 long      g_tickMsc    = 0;       // ★2026-11-04(4回目): 前回見た最後のティックのミリ秒時刻(更新の検出用)
 ulong     g_tickChgMs  = 0;       // ★2026-11-04(4回目): ティックが更新されたのを最後に見たPC時刻(GetTickCount64。時計のずれの影響を受けない)
+int       g_barLag     = 0;       // ★2026-11-06: 足の遅れ(秒)
+bool      g_lagging    = false;   // ★2026-11-06: 処理遅れ中か
+datetime  g_linkSince  = 0;       // ★2026-11-09: 連携NG(新規エントリー不可)が始まった時刻(TimeTradeServer基準)
 datetime  g_stallSince = 0;       // ★2026-11-04(2回目): 「価格停止」が始まった時刻(TimeTradeServer基準)
 bool      g_prevBad    = false;   // ★2026-11-04(2回目): 直前が通知対象の異常だったか
 bool      g_notifiedBad= false;   // ★2026-11-04(2回目): 異常をスマホへ通知済みで、復旧の通知がまだか
@@ -345,6 +370,17 @@ void Check()
    bool connected = (bool)TerminalInfoInteger(TERMINAL_CONNECTED);
    int  inSess    = (connected && !marketOpen) ? QuoteSessionState(sym, nowTrd) : 0;
 
+   // --- ★2026-11-06追加: 処理遅れ(足の遅れ)。ティックの受信(TimeCurrent)は進むのに、足の更新が追いつかない状態を測る ---
+   //     同じ銘柄のスレッドで、インジの計算が詰まると、最新のM1足の開始時刻が遅れる(通常は0〜60秒)。
+   datetime bar0 = (datetime)iTime(sym, PERIOD_M1, 0);
+   g_barLag  = (bar0 > 0) ? (int)(TimeCurrent() - bar0) : 0;
+   g_lagging = (InpLagWarnSec > 0 && marketOpen && g_barLag > InpLagWarnSec);
+
+   // --- ★2026-11-09追加: 新規エントリーができない連携NG(矢印GV停止など)を、状態の判定の前に求める ---
+   bool linkBlockE = false;
+   string issuesE  = LinkIssues(eaDown, eaAge, linkBlockE);
+   if(!(GlobalVariableCheck(StringFormat("DK_EA_LINKOK_%d", InpMagic)) && GlobalVariableGet(StringFormat("DK_EA_LINKOK_%d", InpMagic)) != 0.0)) linkBlockE = true;   // EA自身が連携NGと判定
+
    // --- 総合状態 ---
    WD_STATE st;
    if(eaDown)           st = WD_EA_DOWN;
@@ -352,6 +388,8 @@ void Check()
    else if(!algoOk)     st = WD_TRADE_OFF;   // ★2026-09-09追加: プロセスは生きていても発注不可
    else if(reasonDown)  st = WD_REASON_DOWN;
    else if(!marketOpen) st = (inSess == 1) ? WD_PRICE_STALL : WD_MARKET_CLOSED;   // ★2026-11-04(2回目)
+   else if(linkBlockE)  st = WD_LINK;          // ★2026-11-09: 連携NG(新規エントリー不可。矢印GV停止など)
+   else if(g_lagging)   st = WD_LAG;           // ★2026-11-06: 処理遅れ
    else                 st = WD_OK;
 
    // --- ★EAの停止理由(GV)を読む。RUNNING行の右に出す ---
@@ -426,7 +464,11 @@ void Check()
    else                       g_stallSince = 0;
    bool stallLong = (st == WD_PRICE_STALL && InpStallNotifyMin > 0 && g_stallSince > 0 &&
                      (nowTrd - g_stallSince) >= (datetime)InpStallNotifyMin*60);
-   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN || st==WD_TRADE_OFF || st==WD_DISCONNECTED || stallLong);   // ★2026-09-09追加: WD_TRADE_OFFも通知対象
+   if(st == WD_LINK) { if(g_linkSince == 0) g_linkSince = nowTrd; }
+   else                g_linkSince = 0;
+   bool linkLong = (st == WD_LINK && InpLinkNotifyMin > 0 && g_linkSince > 0 && (nowTrd - g_linkSince) >= (datetime)InpLinkNotifyMin*60);   // ★2026-11-09
+   bool lagLong = (st == WD_LAG && InpLagNotifyMin > 0 && g_barLag >= InpLagNotifyMin * 60);   // ★2026-11-06
+   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN || st==WD_TRADE_OFF || st==WD_DISCONNECTED || stallLong || lagLong || linkLong);   // ★2026-09-09追加: WD_TRADE_OFFも通知対象
    if(isBad)
    {
       bool changed = g_started && ((!g_prevBad) || (st != g_prev));
@@ -438,6 +480,8 @@ void Check()
          string head = (st==WD_EA_DOWN)       ? "【!】DokaKotsu EA停止"
                      : (st==WD_TRADE_OFF)     ? "【!】DokaKotsu 自動売買OFF(発注不可)"   // ★2026-09-09追加
                      : (st==WD_DISCONNECTED)  ? "【!】DokaKotsu 通信断(MT5が取引サーバーに接続していません)"   // ★2026-11-04(2回目)
+                     : (st==WD_LINK)          ? ("【!】DokaKotsu 連携NG(新規エントリーできません): " + issuesE)   // ★2026-11-09
+                     : (st==WD_LAG)           ? ("【!】DokaKotsu 処理遅れ(足が" + AgeTxt(g_barLag) + "遅れ。インジの計算が追いついていません)")   // ★2026-11-06
                      : (st==WD_PRICE_STALL)   ? ("【!】DokaKotsu 価格停止(取引時間中なのに最後のティックから" + (gotTick ? AgeTxt(staleAge) : "--") + ")")   // ★2026-11-04(2回目)
                                               : "【!】DokaKotsu reasonログ停止";
          string msg  = StringFormat("%s (EA最終%s前 / reason%s前) %s JST",
@@ -574,11 +618,13 @@ string StopDetail(int code, int streak)
 }
 
 //--- ★2026-11-04: 連携先の生存確認(GV)。止まってから InpOptGoneSec(既定6時間)以内のものだけ出す(外したものを出し続けない)
-string OptIssue(const string label, const string tsName)
+string OptIssue(const string label, const string tsName, const bool noCutoff = false)
 {
    if(!GlobalVariableCheck(tsName)) return "";
    int age = (int)(TimeCurrent() - (datetime)GlobalVariableGet(tsName));
-   if(age > InpOptStaleSec && age <= InpOptGoneSec) return label + " " + AgeTxt(age);
+   // ★2026-11-09: noCutoff=true(本体インジの矢印GV)は、InpOptGoneSec(6時間)の上限をつけない。週末明けは、最後の更新が土曜で48時間以上古く、
+   //   上限をつけると「矢印GV停止」が出ず、EAが見送っているのに、Watchdogが何も出さなかった。
+   if(age > InpOptStaleSec && (noCutoff || age <= InpOptGoneSec)) return label + " " + AgeTxt(age);
    return "";
 }
 //--- 連携NGの内訳(空文字=問題なし)
@@ -589,9 +635,14 @@ string LinkIssues(const bool eaDown, const int eaAge, bool &blocking)   // block
    if(eaDown) { s = "EA心拍切れ " + AgeTxt(eaAge); blocking = true; }
    if(g_ind == INVALID_HANDLE) { s += (s != "" ? "・" : "") + "本体インジ未検出"; blocking = true; }
    long cid = ChartID();
-   x = OptIssue("矢印GV停止",   StringFormat("DK_SIG_TS_%I64d",   cid)); if(x != "") { s += (s != "" ? "・" : "") + x; blocking = true; }   // EAは矢印GVが古い(InpSigStaleSec=180秒)と入らない
+   x = OptIssue("矢印GV停止",   StringFormat("DK_SIG_TS_%I64d",   cid), true); if(x != "") { s += (s != "" ? "・" : "") + x; blocking = true; }   // EAは矢印GVが古い(InpSigStaleSec=180秒)と入らない
    x = OptIssue("VStop停止",    StringFormat("DK_VSTOP_TS_%I64d", cid)); if(x != "") s += (s != "" ? "・" : "") + x;
    x = OptIssue("RRインジ停止", StringFormat("YDS_TS_%I64d",      cid)); if(x != "") s += (s != "" ? "・" : "") + x;
+   // ★2026-11-06追加: 処理遅れ(足の遅れ)。エントリーは止めないが、判断が古い足で行われる状態
+   if(g_lagging) s += (s != "" ? "・" : "") + "処理遅れ " + AgeTxt(g_barLag);
+   // ★2026-11-05(2回目): 指標の出どころ。2=Calendarインジが止まっていて、EAが従来の直接判定に切り替わっている(ダッシュボードと分類がずれるおそれ)
+   string evsrc = StringFormat("DK_EA_EVSRC_%d", InpMagic);
+   if(GlobalVariableCheck(evsrc) && (int)GlobalVariableGet(evsrc) == 2) s += (s != "" ? "・" : "") + "カレンダー連携切れ(指標はEA直接判定)";
    return s;
 }
 

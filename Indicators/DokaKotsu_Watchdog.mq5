@@ -1,9 +1,28 @@
 ﻿//+------------------------------------------------------------------+
 //|                         DokaKotsu_Watchdog.mq5                   |
-//|  バージョン : v2.0 (処理遅れの表示・通知を追加)                   |
+//|  バージョン : v2.2 (健全性ログ・起動/終了の記録=原因を見つける仕組み)|
 //|  更新日時   : 2026-11-04 (JST・2回目)                             |
 //|------------------------------------------------------------------|
 //|  ■ 変更履歴                                                     |
+//|   ○ 2026-11-11 「止まった原因を、あとから見つけられる仕組み」(ブラックボックス)。       |
+//|      ①健全性ログ: 1分ごとに health_YYYYMMDD.csv(理由CSVと同じフォルダ)へ、通信・       |
+//|        自動売買・ping・MT5のメモリ・ティックの経過秒・足の遅れ・EAの心拍・理由ログ・     |
+//|        矢印GV・カレンダー・VStop・RRの経過秒・状態を追記(InpHealthLog)。                 |
+//|        止まる直前に、何が悪化していたか(通信・遅れ・メモリ)が、あとから分かる。           |
+//|      ②起動・終了の記録: 終了の時刻と理由(OnDeinit)を、GV・Journal・health CSVに残し、   |
+//|        起動時に、前回の生存確認の時刻と、停止していた時間を、Journalとhealth CSVに残す。  |
+//|        停止が InpResumeNotifyMin(5)分以上なら、スマホにも通知する(0=通知しない)。        |
+//|      ③起動直後(90秒)は、足の遅れの警告を出さない(履歴の同期中の、見かけの遅れによる      |
+//|        誤警報。11/11 21:13に「足が793分遅れ」と出て、10秒後に復旧した)。                  |
+//|   ○ 2026-11-09 11/9の朝、EAが08:00から11:40まで、矢印GVが古いために      |
+//|      エントリーを見送り続けたのに、Watchdogが何も出さなかった問題の修正。       |
+//|      原因: 連携先のGVは「止まってから6時間を超えたものは外したとみなして出さない」|
+//|      仕様(InpOptGoneSec)を、本体インジの矢印GVにも当てていた。週末明けは、最後の  |
+//|      更新が土曜のため48時間以上古く、「矢印GV停止」が表示されなかった。          |
+//|      ①矢印GV(DK_SIG_TS)は、6時間の上限なしで、市場が開いている間は常に検知する。 |
+//|        (VStop・RRインジは従来どおり6時間まで)                                  |
+//|      ②新規エントリーができない連携NG(矢印GV停止・本体インジ未検出・EAの連携NG判定)|
+//|        が InpLinkNotifyMin(既定3分)続いたら、スマホへ通知する(0=通知しない)。     |
 //|   ○ 2026-11-06 「動きが鈍い」の見える化。最新ティックの時刻(TimeCurrent)と、  |
 //|      最新のM1足の開始時刻の差=「足の遅れ」を測る(通常0〜60秒)。InpLagWarnSec |
 //|      (既定150秒)を超えたら、連携NGの内訳に「処理遅れ ○分」を出す(橙。エントリー|
@@ -113,7 +132,7 @@
 //|       DK_EA_LOSSSTREAK_<magic> … 連敗数(連敗表示用)              |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "2.00"
+#property version   "2.20"
 #property strict
 #property indicator_chart_window
 #property indicator_plots   0
@@ -140,6 +159,11 @@ input bool   InpNotifyRecover  = true;      // 復旧時も通知するか
 input int    InpRescueShowMin  = 5;         // 損切り再決済を検知したら、この分数だけ2行目に表示
 input bool   InpHideOhlc       = true;      // ★2026-11-04: チャート左上のMT5標準の見出しから価格(OHLC)を消す(外した時は元の設定へ戻す)
 input int    InpOptStaleSec    = 180;       // ★2026-11-04: 連携先(矢印GV/VolatilityStop/RRインジ)の生存確認がこの秒数より古ければ、連携NGの内訳に出す
+input bool   InpHealthLog      = true;      // ★2026-11-11: 健全性ログ(health_YYYYMMDD.csv)を書く
+input int    InpHealthLogSec   = 60;        // ★2026-11-11: 健全性ログの間隔(秒)
+input int    InpResumeNotifyMin= 5;         // ★2026-11-11: 起動時に、前回の生存確認からこの分数以上空いていたら、スマホへ通知(0=通知しない)
+input string InpHealthDir      = "dokakotsu_entry_reason";   // ★2026-11-11: 健全性ログの保存フォルダ(MQL5\\Files内。EAの理由CSVと同じ)
+input int    InpLinkNotifyMin  = 3;         // ★2026-11-09: 新規エントリーができない連携NG(矢印GV停止など)がこの分数続いたらスマホ通知(0=通知しない)
 input int    InpLagWarnSec     = 150;       // ★2026-11-06: 足の遅れ(最新ティックの時刻−最新M1足の開始時刻)がこの秒数を超えたら「処理遅れ」と出す(0=無効)
 input int    InpLagNotifyMin   = 5;         // ★2026-11-06: 処理遅れがこの分数以上続いたらスマホ通知(0=通知しない)
 input int    InpStallNotifyMin = 10;        // ★2026-11-04(2回目): 「価格停止」(取引時間中のティック無し)がこの分数続いたらスマホ通知(0=通知しない)
@@ -150,13 +174,16 @@ input bool   InpForceExit      = true;      // ★EXIT継続なのに保有残�
 input int    InpStuckGraceSec  = 20;        // ★その状態がこの秒数続いたら決済指示を発令(EAの自力決済を待つ猶予)
 
 //--- 状態
-enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3, WD_TRADE_OFF=4, WD_DISCONNECTED=5, WD_PRICE_STALL=6, WD_LAG=7 };   // ★2026-11-06: 処理遅れを追加   // ★2026-11-04(2回目): 通信断/価格停止を追加  // ★2026-09-09追加: WD_TRADE_OFF(自動売買OFF)
+enum WD_STATE { WD_OK=0, WD_MARKET_CLOSED=1, WD_REASON_DOWN=2, WD_EA_DOWN=3, WD_TRADE_OFF=4, WD_DISCONNECTED=5, WD_PRICE_STALL=6, WD_LAG=7, WD_LINK=8 };   // ★2026-11-09: 連携NG(新規エントリー不可)を追加   // ★2026-11-06: 処理遅れを追加   // ★2026-11-04(2回目): 通信断/価格停止を追加  // ★2026-09-09追加: WD_TRADE_OFF(自動売買OFF)
 WD_STATE  g_prev      = WD_OK;
 datetime  g_lastAlert = 0;
 long      g_tickMsc    = 0;       // ★2026-11-04(4回目): 前回見た最後のティックのミリ秒時刻(更新の検出用)
 ulong     g_tickChgMs  = 0;       // ★2026-11-04(4回目): ティックが更新されたのを最後に見たPC時刻(GetTickCount64。時計のずれの影響を受けない)
 int       g_barLag     = 0;       // ★2026-11-06: 足の遅れ(秒)
 bool      g_lagging    = false;   // ★2026-11-06: 処理遅れ中か
+datetime  g_hlLast      = 0;       // ★2026-11-11: 健全性ログを最後に書いた時刻(PC時計)
+datetime  g_startLocal  = 0;       // ★2026-11-11: このWatchdogの起動時刻(PC時計)
+datetime  g_linkSince  = 0;       // ★2026-11-09: 連携NG(新規エントリー不可)が始まった時刻(TimeTradeServer基準)
 datetime  g_stallSince = 0;       // ★2026-11-04(2回目): 「価格停止」が始まった時刻(TimeTradeServer基準)
 bool      g_prevBad    = false;   // ★2026-11-04(2回目): 直前が通知対象の異常だったか
 bool      g_notifiedBad= false;   // ★2026-11-04(2回目): 異常をスマホへ通知済みで、復旧の通知がまだか
@@ -205,8 +232,96 @@ datetime  g_stuckSince     = 0;             // ★EXIT継続なのに保有残�
 datetime  g_lastForceNotice= 0;             // ★決済指示の通知再送防止
 
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| ★2026-11-11追加: 健全性ログと、起動・終了の記録(止まった原因を、あとから見つけるための記録)       |
+//+------------------------------------------------------------------+
+string WdDeinitReasonText(const int r)
+{
+   switch(r)
+   {
+      case 0: return "プログラム自身の終了";
+      case 1: return "チャートからWatchdogを削除";
+      case 2: return "再コンパイル";
+      case 3: return "銘柄・時間足の変更";
+      case 4: return "チャートを閉じた";
+      case 5: return "入力パラメータの変更";
+      case 6: return "別の口座に接続";
+      case 7: return "テンプレートの適用";
+      case 8: return "初期化に失敗";
+      case 9: return "MT5(ターミナル)の終了";
+   }
+   return "不明";
+}
+
+int GvAgeSec(const string name)   // GVの更新からの経過秒(無ければ -1)
+{
+   if(!GlobalVariableCheck(name)) return -1;
+   return (int)(TimeCurrent() - (datetime)GlobalVariableGet(name));
+}
+
+void WdHealthRow(const string event, const string note, const int tickAge, const int eaAge, const int rsAge,
+                 const bool connected, const bool algoOk, const int state, const bool linkBlock)
+{
+   if(!InpHealthLog) return;
+   long cid = ChartID();
+   datetime nowLoc = TimeLocal();   // PCの時計(日本時間前提)。Watchdogの他の表示と同じ
+   MqlDateTime dt; TimeToStruct(nowLoc, dt);
+   string fname = StringFormat("%s\\health_%04d%02d%02d.csv", InpHealthDir, dt.year, dt.mon, dt.day);
+   bool isNew = !FileIsExist(fname);
+   int h = FileOpen(fname, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+   if(h == INVALID_HANDLE) return;   // 記録のみ。開けなくても何もしない
+   FileSeek(h, 0, SEEK_END);
+   if(isNew)
+      FileWrite(h, "time_jst", "event", "connected", "algo_ok", "ping_ms", "mem_mb", "tick_age_s", "bar_lag_s", "ea_hb_age_s", "reason_age_s",
+                "arrow_gv_age_s", "calendar_gv_age_s", "vstop_age_s", "rr_age_s", "state", "link_block", "note");
+   FileWrite(h, TimeToString(nowLoc, TIME_DATE|TIME_SECONDS), event,
+             (int)connected, (int)algoOk,
+             StringFormat("%.1f", (double)TerminalInfoInteger(TERMINAL_PING_LAST) / 1000.0),
+             (int)TerminalInfoInteger(TERMINAL_MEMORY_USED),
+             tickAge, g_barLag, eaAge, rsAge,
+             GvAgeSec(StringFormat("DK_SIG_TS_%I64d", cid)), GvAgeSec(StringFormat("DK_CAL_EV_TS_%d", InpMagic)),
+             GvAgeSec(StringFormat("DK_VSTOP_TS_%I64d", cid)), GvAgeSec(StringFormat("YDS_TS_%I64d", cid)),
+             state, (int)linkBlock, note);
+   FileClose(h);
+}
+
+// 起動時: 前回の生存確認の時刻と、停止していた時間を、Journalとhealth CSVに残す(長い時は、スマホにも通知)。
+//   起動直後は、サーバー時間(TimeCurrent)が古いままのことがあるため、PCの時計(TimeLocal)で測る。
+void WdLifecycleStart()
+{
+   string gA = StringFormat("DK_WD_LASTALIVE_%I64d", ChartID());
+   string gS = StringFormat("DK_WD_LASTSTOP_%I64d",  ChartID());
+   string gR = StringFormat("DK_WD_LASTSTOPR_%I64d", ChartID());
+   datetime nowL = TimeLocal();
+   int gapMin = -1;
+   string note = "Watchdog起動(";
+   datetime la = 0;
+   if(GlobalVariableCheck(gA))
+   {
+      la = (datetime)GlobalVariableGet(gA);
+      gapMin = (int)((nowL - la) / 60);
+      note += StringFormat("前回の生存確認 %s=%d分前", TimeToString(la, TIME_DATE|TIME_MINUTES), gapMin);
+   }
+   else note += "前回の記録なし";
+   if(GlobalVariableCheck(gS))
+   {
+      datetime ls = (datetime)GlobalVariableGet(gS);
+      if(la > 0 && ls + 120 < la)
+         note += " / 前回は正常に終了していない可能性(PCスリープ・強制終了・停電など)";
+      else
+         note += StringFormat(" / 前回の終了 %s 理由=%s", TimeToString(ls, TIME_DATE|TIME_MINUTES), WdDeinitReasonText((int)GlobalVariableGet(gR)));
+   }
+   note += ")";
+   Print("[Watchdog] ", note);
+   WdHealthRow("START", note, -1, -1, -1, (bool)TerminalInfoInteger(TERMINAL_CONNECTED), true, -1, false);
+   if(InpResumeNotifyMin > 0 && gapMin >= InpResumeNotifyMin)
+      Notify("【情報】DokaKotsu 監視を再開: " + note);
+   GlobalVariableSet(gA, (double)nowL);
+}
+
 int OnInit()
 {
+   g_startLocal = TimeLocal();   // ★2026-11-11: 起動直後の見かけの遅れ(履歴の同期中)を、警告しないための基準
    EventSetTimer(InpCheckSec > 0 ? InpCheckSec : 10);
    g_ind = FindDokaKotsuHandle();   // ★2026-07-08変更: バージョン番号を問わず自動検出
    if(InpHideOhlc)   // ★2026-11-04: MT5標準の見出し(銘柄, 時間足: 説明 価格)から、価格(OHLC)を消す
@@ -217,6 +332,7 @@ int OnInit()
    }
    ObjectDelete(0, LBL_REASON);   // ★2026-11-04: 旧版の3行目ラベルが残っていたら消す
    CreateLabel(LBL_MAIN, InpY, InpFontSize, clrSilver, "Watchdog ： starting...");
+   WdLifecycleStart();   // ★2026-11-11: 前回の生存確認・終了の理由と、停止していた時間を残す
    Check();   // 即時1回
    return(INIT_SUCCEEDED);
 }
@@ -236,6 +352,11 @@ int OnCalculate(const int rates_total,
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   // ★2026-11-11追加: 終了の時刻と理由を残す(次の起動で、停止の原因を見つけるため)
+   GlobalVariableSet(StringFormat("DK_WD_LASTSTOP_%I64d",  ChartID()), (double)TimeLocal());   // PCの時計
+   GlobalVariableSet(StringFormat("DK_WD_LASTSTOPR_%I64d", ChartID()), (double)reason);
+   Print("[Watchdog] 終了 reason=", reason, "(", WdDeinitReasonText(reason), ")");
+   WdHealthRow("STOP", "Watchdog終了(理由: " + WdDeinitReasonText(reason) + ")", -1, -1, -1, (bool)TerminalInfoInteger(TERMINAL_CONNECTED), true, -1, false);
    if(g_ind != INVALID_HANDLE) IndicatorRelease(g_ind);
    ObjectDelete(0, LBL_MAIN);
    ObjectDelete(0, LBL_RESCUE);
@@ -363,7 +484,12 @@ void Check()
    //     同じ銘柄のスレッドで、インジの計算が詰まると、最新のM1足の開始時刻が遅れる(通常は0〜60秒)。
    datetime bar0 = (datetime)iTime(sym, PERIOD_M1, 0);
    g_barLag  = (bar0 > 0) ? (int)(TimeCurrent() - bar0) : 0;
-   g_lagging = (InpLagWarnSec > 0 && marketOpen && g_barLag > InpLagWarnSec);
+   g_lagging = (InpLagWarnSec > 0 && marketOpen && g_barLag > InpLagWarnSec && (TimeLocal() - g_startLocal) > 90);   // ★2026-11-11: 起動後90秒は出さない(履歴の同期中の見かけの遅れ)
+
+   // --- ★2026-11-09追加: 新規エントリーができない連携NG(矢印GV停止など)を、状態の判定の前に求める ---
+   bool linkBlockE = false;
+   string issuesE  = LinkIssues(eaDown, eaAge, linkBlockE);
+   if(!(GlobalVariableCheck(StringFormat("DK_EA_LINKOK_%d", InpMagic)) && GlobalVariableGet(StringFormat("DK_EA_LINKOK_%d", InpMagic)) != 0.0)) linkBlockE = true;   // EA自身が連携NGと判定
 
    // --- 総合状態 ---
    WD_STATE st;
@@ -372,6 +498,7 @@ void Check()
    else if(!algoOk)     st = WD_TRADE_OFF;   // ★2026-09-09追加: プロセスは生きていても発注不可
    else if(reasonDown)  st = WD_REASON_DOWN;
    else if(!marketOpen) st = (inSess == 1) ? WD_PRICE_STALL : WD_MARKET_CLOSED;   // ★2026-11-04(2回目)
+   else if(linkBlockE)  st = WD_LINK;          // ★2026-11-09: 連携NG(新規エントリー不可。矢印GV停止など)
    else if(g_lagging)   st = WD_LAG;           // ★2026-11-06: 処理遅れ
    else                 st = WD_OK;
 
@@ -447,8 +574,11 @@ void Check()
    else                       g_stallSince = 0;
    bool stallLong = (st == WD_PRICE_STALL && InpStallNotifyMin > 0 && g_stallSince > 0 &&
                      (nowTrd - g_stallSince) >= (datetime)InpStallNotifyMin*60);
+   if(st == WD_LINK) { if(g_linkSince == 0) g_linkSince = nowTrd; }
+   else                g_linkSince = 0;
+   bool linkLong = (st == WD_LINK && InpLinkNotifyMin > 0 && g_linkSince > 0 && (nowTrd - g_linkSince) >= (datetime)InpLinkNotifyMin*60);   // ★2026-11-09
    bool lagLong = (st == WD_LAG && InpLagNotifyMin > 0 && g_barLag >= InpLagNotifyMin * 60);   // ★2026-11-06
-   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN || st==WD_TRADE_OFF || st==WD_DISCONNECTED || stallLong || lagLong);   // ★2026-09-09追加: WD_TRADE_OFFも通知対象
+   bool isBad = (st==WD_EA_DOWN || st==WD_REASON_DOWN || st==WD_TRADE_OFF || st==WD_DISCONNECTED || stallLong || lagLong || linkLong);   // ★2026-09-09追加: WD_TRADE_OFFも通知対象
    if(isBad)
    {
       bool changed = g_started && ((!g_prevBad) || (st != g_prev));
@@ -460,6 +590,7 @@ void Check()
          string head = (st==WD_EA_DOWN)       ? "【!】DokaKotsu EA停止"
                      : (st==WD_TRADE_OFF)     ? "【!】DokaKotsu 自動売買OFF(発注不可)"   // ★2026-09-09追加
                      : (st==WD_DISCONNECTED)  ? "【!】DokaKotsu 通信断(MT5が取引サーバーに接続していません)"   // ★2026-11-04(2回目)
+                     : (st==WD_LINK)          ? ("【!】DokaKotsu 連携NG(新規エントリーできません): " + issuesE)   // ★2026-11-09
                      : (st==WD_LAG)           ? ("【!】DokaKotsu 処理遅れ(足が" + AgeTxt(g_barLag) + "遅れ。インジの計算が追いついていません)")   // ★2026-11-06
                      : (st==WD_PRICE_STALL)   ? ("【!】DokaKotsu 価格停止(取引時間中なのに最後のティックから" + (gotTick ? AgeTxt(staleAge) : "--") + ")")   // ★2026-11-04(2回目)
                                               : "【!】DokaKotsu reasonログ停止";
@@ -488,6 +619,13 @@ void Check()
    g_prevBad = isBad;
    g_prev    = st;
    g_started = true;
+   // ★2026-11-11追加: 生存の時刻と、健全性ログ(InpHealthLogSec秒ごと)
+   GlobalVariableSet(StringFormat("DK_WD_LASTALIVE_%I64d", ChartID()), (double)TimeLocal());   // PCの時計
+   if(InpHealthLog && (g_hlLast == 0 || TimeLocal() - g_hlLast >= (datetime)MathMax(InpHealthLogSec, 10)))
+   {
+      g_hlLast = TimeLocal();
+      WdHealthRow("", "", staleAge, eaAge, rsAge, connected, algoOk, (int)st, linkBlockE);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -597,11 +735,13 @@ string StopDetail(int code, int streak)
 }
 
 //--- ★2026-11-04: 連携先の生存確認(GV)。止まってから InpOptGoneSec(既定6時間)以内のものだけ出す(外したものを出し続けない)
-string OptIssue(const string label, const string tsName)
+string OptIssue(const string label, const string tsName, const bool noCutoff = false)
 {
    if(!GlobalVariableCheck(tsName)) return "";
    int age = (int)(TimeCurrent() - (datetime)GlobalVariableGet(tsName));
-   if(age > InpOptStaleSec && age <= InpOptGoneSec) return label + " " + AgeTxt(age);
+   // ★2026-11-09: noCutoff=true(本体インジの矢印GV)は、InpOptGoneSec(6時間)の上限をつけない。週末明けは、最後の更新が土曜で48時間以上古く、
+   //   上限をつけると「矢印GV停止」が出ず、EAが見送っているのに、Watchdogが何も出さなかった。
+   if(age > InpOptStaleSec && (noCutoff || age <= InpOptGoneSec)) return label + " " + AgeTxt(age);
    return "";
 }
 //--- 連携NGの内訳(空文字=問題なし)
@@ -612,7 +752,7 @@ string LinkIssues(const bool eaDown, const int eaAge, bool &blocking)   // block
    if(eaDown) { s = "EA心拍切れ " + AgeTxt(eaAge); blocking = true; }
    if(g_ind == INVALID_HANDLE) { s += (s != "" ? "・" : "") + "本体インジ未検出"; blocking = true; }
    long cid = ChartID();
-   x = OptIssue("矢印GV停止",   StringFormat("DK_SIG_TS_%I64d",   cid)); if(x != "") { s += (s != "" ? "・" : "") + x; blocking = true; }   // EAは矢印GVが古い(InpSigStaleSec=180秒)と入らない
+   x = OptIssue("矢印GV停止",   StringFormat("DK_SIG_TS_%I64d",   cid), true); if(x != "") { s += (s != "" ? "・" : "") + x; blocking = true; }   // EAは矢印GVが古い(InpSigStaleSec=180秒)と入らない
    x = OptIssue("VStop停止",    StringFormat("DK_VSTOP_TS_%I64d", cid)); if(x != "") s += (s != "" ? "・" : "") + x;
    x = OptIssue("RRインジ停止", StringFormat("YDS_TS_%I64d",      cid)); if(x != "") s += (s != "" ? "・" : "") + x;
    // ★2026-11-06追加: 処理遅れ(足の遅れ)。エントリーは止めないが、判断が古い足で行われる状態

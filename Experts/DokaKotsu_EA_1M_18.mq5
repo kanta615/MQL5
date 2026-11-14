@@ -1,5 +1,96 @@
 ﻿//+------------------------------------------------------------------+
-//|                              DokaKotsu_EA_1M_7.mq5                  |
+//|                              DokaKotsu_EA_1M_18.mq5                  |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-14(2回目)  修正内容(日本市場午後停止を 13:00〜18:59 → 13:00〜17:59 に変更)
+//|    田島さんご指示。InpJpPmEndHourJST の既定を 19 → 18 に変更(18:00から新規可)。ロジック・他の停止は変更なし。モニターの停止規則は、EAが書く値から自動で変わる。
+//|
+//|  ■ 修正日: 2026-11-14  修正内容(米国休日の停止から「退役軍人の日(復員軍人の日)」等を除外)
+//|    田島さんご指示「🇺🇸米国休日: 復員軍人の日 は停止解除したい」。ブローカーのMT5カレンダーが退役軍人の日を
+//|    祝日(HOLIDAY)として配信するため、停止対象になっていた。新input InpUSHolExcludeKeys(既定「Veterans;復員;退役;Columbus;コロンブス」)
+//|    に名前が含まれる祝日は、米国休日の停止判定から外す(コロンブスデーも同じ扱い=従来方針どおり停止対象外)。他の祝日は従来どおり。
+//|    Calendar_v7側にも同じ除外を入れた(画面表示を停止対象外の参考表示にする)。判断ロジックはEAが持ち、Calendarは表示のみ。
+//|
+//|  ■ 修正日: 2026-11-13(4回目)  修正内容(利益ロックのルールを、停止規則JSONに出す)   |
+//|    田島さんご要望「これをモニターの停止規則で見れるように」。停止規則JSON(DokaKotsu_StopRules.json)|
+//|    に、新しいキー "lock_rules" を追加: 段階建値/ゆっくりトレール(3段の比率・境目)/ロック表        |
+//|    (MFE→SLのロック位置)/発表前ロック(次の発表と、ロック開始時刻・Calendar連携の生死)/            |
+//|    トレーリング発動/保険SL/緊急ストップ/保有中の状態(入値・SL・含み益・最大含み益・ロック)。     |
+//|    値はすべてInput値そのもの。既存の "rules" "current" は変更なし。判断・発注の変更なし。          |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-13(3回目)  修正内容(ゆっくりトレールを3段で加速=「強め」)        |
+//|    田島さんご要望「100pipで+10にしたい。大きくなるほど上がるよう加速させたい」。「強め」を採用。|
+//|    比率を3段に: 80〜150pip=0.50 / 150〜250pip=0.70 / 250pip以上=0.85(各段の伸びに掛けて合計)。|
+//|    ロック(利側SL): MFE90→+5 / 100→+10 / 120→+20 / 150→+35 / 200→+70 / 250→+105 /            |
+//|    300→+147.5 / 400→+232.5 / 500→+317.5pip(旧0.40: 100→+8 / 200→+48 / 300→+88 / 500→+168)。|
+//|    新規input: InpSlowTrailStage2Pips(150)/InpSlowTrailRatio2(0.70)/InpSlowTrailStage3Pips(250)/ |
+//|    InpSlowTrailRatio3(0.85)。InpSlowTrailRatio(1段目)は 0.40→0.50。                           |
+//|    変更なし: 1段目80pipで建値/2段目150pipで+20(トレールの方が高ければトレールを採る)/       |
+//|    更新幅2pip/現在の含み益から10pip手前/発表前ロック/トレール発動(25%)/決済ロジック。      |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-13(2回目)  修正内容(発表前ロック・ゆっくりトレールの利幅を拡大)  |
+//|    11/13 22:30のPPIで、含み益+80pip(約$8)が、1分間84pipの逆行で、建値のSL(+0.1pip)に|
+//|    当たって終わった(田島さんご指摘)。値動き(longlog)で確認: 22:17〜22:30は+48〜+80pip、 |
+//|    22:31は-4.7pip、22:35は-165pip。SLを建値に上げていたので、-100pip(保険SL)は避けた。|
+//|    ①発表前ロック(B2)を新設: 指標の発表の InpPreEventLockMin(5)分前から発表まで、      |
+//|      含み益が InpPreEventLockMinPips(20)pip以上なら、SLを「含み益の50%」に追従させる。  |
+//|      (今回の取引なら、約+40pipで決済)。PPI・小売売上高は、新規停止がOFFでも働く。       |
+//|    ②ゆっくりトレールの利幅を拡大: InpSlowTrailRatio 0.30→0.40、更新幅 5→2pip。         |
+//|      MFE100→+8 / 120→+16 / 150→+28 / 200→+48 / 300→+88pip(旧: +6/+12/+21/+36/+66)。     |
+//|      MFEが80〜97pipで建値のままだった範囲(今回の取引)も、更新されるようになる。          |
+//|    1段目(80pipで建値)・2段目(150pipで+20)・トレール発動(25%)・決済ロジックは変更なし。  |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-13  修正内容(一目スパンの診断ログ=記録のみ)                    |
+//|    「雲のA・B、価格の位置(雲の上/中/下)、現行ルールと新ルール案の結果を残して」との     |
+//|    ご要望。毎分 spanlog_YYYYMMDD.csv(理由CSVと同じフォルダ)に追記(InpLogSpanDiag)。     |
+//|    表示されている雲のA・B(先行本数前に計算した値)・上端/下端・直前に確定した足の終値・   |
+//|    雲の上/中/下・現行ルールの結果(cur_rule_ok)・新ルール案の結果(雲の外ならOK/方向一致)。 |
+//|    EA起動後、裏のインジが計算を終えたら、直近InpLongBackfillBars(4000)本分を             |
+//|    spanlog_backfill_日付.csvに1回書き出す(過去の場面も、すぐ検証できる)。                  |
+//|    本体インジのルール(reason55)は変更していない。発注・決済・停止の判定も変更なし。       |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-11  修正内容(起動・終了の記録=止まった原因を見つける仕組み)      |
+//|    「ログが空白だった原因を発見できる仕組みを」とのご要望。EAの起動と終了を記録する:   |
+//|     (時刻は、PCの時計で測る。起動直後は、サーバー時間が古いままのことがあるため)         |
+//|     ・終了(OnDeinit): 時刻と理由(チャートから削除/再コンパイル/チャートを閉じた/        |
+//|       MT5の終了 など)を、GV DK_EA_LASTSTOP/LASTSTOPR・Journal・理由CSV(ea_note)に残す。 |
+//|     ・生存: OnTimerごとに GV DK_EA_LASTALIVE を更新。                                   |
+//|     ・起動(OnInit): 前回の生存確認・終了の時刻と理由、停止していた時間(分)を、          |
+//|       Journalと理由CSV(ea_note=「EA起動(…)」)に残す。終了の記録が無い時は、             |
+//|       「正常に終了していない可能性(PCスリープ・強制終了・停電など)」と出す。            |
+//|    記録のみ。発注・決済・停止の判定は変更なし。理由CSVの列の並びも変更なし。            |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-09(5回目)  修正内容(世代を 1M_7 → 1M_18 に更新)               |
+//|    田島さんご指示「バージョンを18に」。ファイル名を DokaKotsu_EA_1M_18.mq5 に、読み込む |
+//|    インジ名(InpIndicatorName)を DokaKotsu_indicator_1M_18 に、起動ログを v1M18.0 に変更。|
+//|    (EAの番号は、インジと一致させる方針)。発注・決済・停止の変更なし。                    |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-09(4回目)  修正内容(長期足のログ拡張・CSV列25〜31の不具合修正)  |
+//|    ①長期足の診断ログに、その足で使った長期足の期間(時間帯切替で変わる)と、MAの種類    |
+//|      (EMAなど)を追加。ファイル名を longlog_YYYYMMDD.csv / longlog_backfill_日付.csv に   |
+//|      変更(前の版のlong_*.csvは列が違うため。削除はしない=過去の記録は、そのまま残る)。   |
+//|    ②理由CSVの列25〜31(dbg_*・minor/major_spike_*)が、2026-11-03から、一目スパンの値   |
+//|      (価格や130)になっていた不具合を修正。これらのバッファ(buf64〜70)は、現行の        |
+//|      indicatorに無く、11/3にスパン用のbuf64〜66を足した影響で別の値を読んでいた。        |
+//|      以後は従来どおり0を書く(列の並びは変えない)。判定には使っていない列。              |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-09(3回目)  修正内容(長期足の診断ログ=記録のみ)              |
+//|    「長期足の基準を変えたら、何分早く入れるか」を、数字で確かめるための記録。       |
+//|    ①1分ごとに long_YYYYMMDD.csv(理由CSVと同じフォルダ)へ、長期足の傾き(lsl)・       |
+//|      グレー閾値・長期MAの値などを追記(InpLogLongDiag)。理由CSVの列は変更しない。      |
+//|    ②EA起動後、裏のインジが計算を終えたら、直近InpLongBackfillBars(4000)本分を        |
+//|      long_backfill.csvに1回書き出す(ログの無い過去の分も、すぐ分析できる)。          |
+//|    発注・決済・停止の判定は変更なし。                                              |
+//|                                                                  |
+//|  ■ 修正日: 2026-11-09  修正内容(見送りの理由を理由CSVに残す)                  |
+//|    「朝、エントリーサインが出なかったのはなぜ?拒んだ理由はどこ?」への対応。       |
+//|    EAが入るのは、チャートの本体インジの矢印(GV)だけ。裏のインジ(理由CSVのcode/dirの|
+//|    元)がBUY/SELLを出しても、チャートの矢印が、無い・古い・別の足・GVが無い時は    |
+//|    入らないが、その理由は、CSVにもJournalにも(10分に1回の警告を除き)残らなかった。|
+//|    直前の足で、裏のインジがBUY/SELL(code1/2)を出して、EAが、その足の最初の      |
+//|    ティックで入らなかった時、ea_noteに「ノーポジ[この足の最初のティックでは入らず:  |
+//|    裏のインジはSELL発生 / 理由]」と残す。理由=チャートの矢印GVが無い/古い(秒)/     |
+//|    矢印が無い/別の足(JST時刻)/矢印は有るが発注に至らず(order_err)。               |
+//|    記録のみ。発注・決済・停止の判定は変更なし。                                    |
 //|                                                                  |
 //|  ■ 修正日: 2026-11-06  修正内容(裏のインジの計算範囲を直近N本に)              |
 //|    動きの鈍さ(処理遅れ)の対策。EAの裏のインジ(iCustom)を、全期間ではなく、     |
@@ -26,13 +117,13 @@
 //|    田島さんご指示。毎日の停止の時間帯を次のように変更:                    |
 //|     0:00〜3:59 可 / 4:00〜8:59 停止=オセアニア市場停止 / 9:00〜9:59 可 /    |
 //|     10:00〜10:59 停止=10時のみ取引停止 / 11:00〜12:59 可 /                 |
-//|     13:00〜18:59 停止=日本市場午後停止 / 19:00〜23:59 可。                  |
+//|     13:00〜17:59 停止=日本市場午後停止 / 18:00〜23:59 可(2026-11-14変更)。                  |
 //|     ①オセアニア市場停止の再開を 6:45→9:00 に(InpResumeHourJST=9,Min=0)。   |
 //|       ※この値は、取引日の区切り(日次損失・連敗の復活)と米国休日の終了にも    |
 //|       使うため、それらも 6:00→9:00 になる(4〜8時台は停止なので実質の差はない)。|
 //|     ②名前つきの停止を新設: 10時のみ取引停止(code20)/日本市場午後停止(code21)。|
 //|       新規input: InpUseStopHour10/InpStopHour10JST/InpUseJpPmStop/            |
-//|       InpJpPmStartHourJST(13)/InpJpPmEndHourJST(19)。分類は「時間帯」。        |
+//|       InpJpPmStartHourJST(13)/InpJpPmEndHourJST(18)。分類は「時間帯」。        |
 //|     ③旧「取引する時間帯(許可リスト)」は既定OFFに(InpUseHourSchedule=false)。  |
 //|       trueにすると、リストに無い時を追加で停止(理由は取引時間外=code17)。      |
 //|     ④インジが過去の足にも反映するGV DK_EA_SCHED(取引できる時のビット)は、    |
@@ -508,15 +599,15 @@
 //|  ※ インジと同じチャート(同じM5・同じXAUUSD)に載せること。     |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1M7.00"
+#property version   "1M18.00"
 #property strict
 
 #include <Trade/Trade.mqh>
 CTrade trade;
 
 //=== バージョン(最新確認用) =======================================
-#define EA_VERSION "v1M7.0"
-#define EA_BUILD   "2026-11-06 ★裏のインジの計算範囲を直近N本に(InpIndCalcBars=30000。iCustomの第2引数)。処理遅れ対策。 / 2026-11-05(2回目) ★指標の分類をCalendarインジの1か所に統一(ダッシュボードと同じ出どころ。GV DK_CAL_EV_*を読む。無い時だけ従来のEA直接判定)。ADP・労働生産性を雇用統計にしない。 / 2026-11-05 ★毎日の時間帯の停止を名前つきに: オセアニア市場停止=4:00〜8:59(InpResumeHourJST=9) / 10時のみ取引停止(code20) / 日本市場午後停止=13:00〜18:59(code21)。0〜3時台は取引可。旧スケジュールは既定OFF。 / 2026-11-04(2回目) ★停止の分類GV(DK_EA_STOPCAT/STOPCNT)を公開。イベント予防線に理由コード19を新設。手動停止(13)が30〜60秒更新で上書きされる不具合を修正(Watchdog表示用。判定は不変)。 / 2026-11-04 ★エントリー時のRRをGV DK_EA_ENTRY_RR_<magic>で公開(ダッシュボード表示用・記録専用)。 / 2026-11-03(5回目) ★エントリー記録のcontextに rr_list(\"RR240 RR100 RR40\" の形。エントリー時の価格で計算し直したRR一覧)を追加。ReasonTextに56(RR不足)を追加。記録専用。 / 2026-11-03(4回目) ★エントリー記録のcontextに vstop(Dokakotsu_VolatilityStopのSTOP/RUN/NA)を追加(InpLogVstop。記録専用)。 / 2026-11-03(3回目) ★ISMのみ停止の途中に開放を追加(InpUseIsmOpenWindow: 14時停止開始はそのまま・21時に開放・発表30分前に再停止・発表後1時間まで停止)。他の指標には影響しない。 / 2026-11-03(2回目) ★エントリーリーズンの記録(dow_*)を、インジ「Dokakotsu_Risk-Reward Ratio」のRR候補(RR1と、エントリー方向の最良)に切り替え。記録専用。 / 2026-11-03 ★ReasonTextにreason55(一目スパンのルール)と54(VolatilityStop)を追加。EAのロジックの変更なし。 / 2026-11-02 ★エントリー記録(entry_*.jsonl)のcontext(エントリーリーズン)に、Dokakotsu_Dow_Indicator(同じチャート)の「現在値から見たRR」と使ったラインをdow_*として記録(InpLogDowRr=true。記録専用で発注には影響しない)。 / 2026-10-30 ★バージョン7へ改名。ファイル名をDokaKotsu_EA_1M_6.mq5からDokaKotsu_EA_1M_7.mq5へ変更し、参照先インジ(DokaKotsu_indicator_1M_7)に合わせてInpIndicatorName・#property version(1M7.00)・EA_VERSION(v1M7.0)・起動時Print文・矢印GV未検出の警告文を1M_7に統一。EA自体のロジック変更はなし。 / 2026-10-28(2回目) ★PCEを停止ルールに追加。指標種別EV_PCE(ClassifyEventでPCE/個人消費支出/Personal Consumptionを判定)・input InpUsePceStop(既定true)・停止理由コード18「PCE発表前停止」・停止規則JSON(PCE)を追加。挙動は他指標と同じ(発表当日JST14時〜発表後InpEvAfterHours)。発注・決済ロジックの変更なし。 / 2026-10-28 ★利益ロックを80pipから+ゆっくりトレール。段階建値の1段目InpBEtriggerPipsを100→80に変更し、新規InpUseSlowTrail(既定true)/InpSlowTrailRatio(0.30)/InpSlowTrailGapPips(10)/InpSlowTrailStepPips(5)を追加。1段目到達後、MFEが伸びた分の30%だけSLの利側ロックを引き上げ続ける(段階建値の各段と比べ有利なほうを採用、SLは利側にしか動かさない)。段階決済の切替(100)・トレール発動(25%)・決済ロジックは変更なし。 / 2026-10-26(3回目) ★バージョン6へ改名。ファイル名をDokaKotsu_EA_1M_5.mq5からDokaKotsu_EA_1M_6.mq5へ変更し、参照先インジ(DokaKotsu_indicator_1M_6)に合わせてInpIndicatorName・#property version(1M6.00)・EA_VERSION(v1M6.0)・起動時Print文・矢印GV未検出の警告文を1M_6に統一。EA自体のロジック変更はなし。 / 2026-10-26(2回目) ★取引時間スケジュール(毎日・JST)を追加。InpUseHourSchedule/InpAllowHoursJST(既定9,11,12,19-23)で許可した時以外は新規停止(保有中は決済しない)。停止理由コード17、停止規則JSON、entryBlocked(インジの矢印抑止)、GV DK_EA_SCHED_<magic>に反映。 / 2026-10-08 ★EAの新規停止状態をGVでインジへ公開(DK_EA_BLOCK_<magic>/DK_EA_BLOCK_TS_<magic>=停止中か・生存、DK_EA_OCEANIA_<magic>/DK_EA_JSTOFF_<magic>=履歴再計算用のオセアニア停止時間帯とJST時差)。EAが入れない停止中にインジが出した矢印がトレンド1回分のロックを消費し、EAが入れる時間も1日中矢印が出なくなる問題(10/9)への対応。ReasonTextにcase 53を追加。発注・決済ロジックの変更なし。 / 2026-10-06 ★エントリーをチャートの矢印に完全一致させた。EAは本体インジが公開するGV(DK_SIG_<チャートID>、直近の確定足の矢印)だけを読んで、矢印が出た足の次の足の間に発注する(新規input InpEntryFromChartArrow既定true/InpSigStaleSec180。GVが無い・古い場合はエントリーしない)。iCustomの裏インスタンスにはfalseを渡して矢印GVを公開させない。決済は変更なし。 / 2026-10-02 ★バージョン5へ改名。indicator_1M_4がDokaKotsu_indicator_1M_5へ改名(長期足をKAMA→SMA・期間900→800に変更)されたことに伴い、ファイル名をDokaKotsu_EA_1M_4.mq5からDokaKotsu_EA_1M_5.mq5へ変更。InpIndicatorName・#property version・EA_VERSION・起動時Print文を全て1M_5に統一。EA自体のロジック変更はなし。 / 2026-09-28(2回目) ★①オセアニア停止解除を6:45へ(InpResumeHourJST/MinJST既定8:58→6:45。米国休日・連敗復活・連敗の日境界も共通でこの時刻基準)。②当日値幅(ブローカー日足の高値-安値)が1000pip以上ならNY時間(夏21/冬22〜翌5時JST)は新規停止(InpUseNyRangeStop/InpNyRangeStopPip、停止理由コード16)。 / 2026-09-28 ★ReasonTextにcase 52(平均足がエントリー方向と逆(即決済回避))を追加。indicator_1M_5側のInpUseHaEntryGate追加(エントリー直後の即決済防止)に伴う表示ラベルの反映のみで、発注/決済ロジックの変更はなし。 / 2026-09-25 ★日本の祝日を終日(00:00〜24:00 JST)新規停止するルールを追加。田島さんご要望「日本の休日は終日全て停止にしたい」。従来、日本の祝日判定自体はDokaKotsu_Calendar_v7.mq5(GetJPHolidayName、内閣府の法定祝日+振替休日+国民の休日を判定し、GV(DK_CAL_JPHOL_TODAY/ACTIVE/START/END_<magic>)へ書き出す)側に既に存在していたが、EA側はこのGVを一切参照しておらず、実際の新規停止には全く反映されていなかった(表示専用のまま放置されていた)。今回、新規input InpUseJPHoliday(既定true)を追加し、RefreshJPHoliday()でDK_CAL_JPHOL_TODAY_<magic>を読み取り(判定ロジックはCalendarインジ側の1箇所のみに一元化、EA側では祝日の計算を一切行わない)、新規エントリーの統合判定条件・診断行のnoteテキスト・DK_StopReasonCode(新規コード15)・StopReasonName・停止ルールJSONに組み込んだ。Calendarインジ側の停止窓は当日14:00〜翌0:00の部分窓だが、今回のご要望は「終日全て」のため、EA側ではTODAY(当日祝日か否か)のみを使い、JST00:00〜24:00の完全終日停止として扱う(Calendarインジ自体の部分窓ロジックは変更していない)。Calendarインジ未アタッチでGVが見つからない場合は1回だけ警告を出し、その間は日本祝日停止は機能しない(米国休日/正月休み等、他の停止ルールには一切影響なし)。 / 2026-09-22(2回目) ★正月休み終日停止のルールを変更。田島さんご指示「元日だけでなく、31日・2日・3日も加えて正月休みとする」により、従来の「年末年始(12/30〜1/3固定)」を「正月休み(12/31〜1/3固定)」へ変更(12/30を対象から除外)。IsYearEndStop()の判定式をmon==12&&day>=30からday>=31に変更。ラベル・コメント・停止ルールJSON('name':'年末年始'→'正月休み','from':'12/30'→'12/31')・DK_StopReasonCode/ReasonTextのcase7ラベル・診断行のnoteテキストも全て「正月休み」に統一。祝日カレンダー(GetJPHolidayName、内閣府の法定祝日に基づく)側は今回変更していない(12/31・1/2・1/3は法定の祝日ではないため、Calendarインジの祝日判定には加えず、あくまでEA側の終日停止ルールとしてのみ扱う)。 / 2026-09-22 ★ReasonTextの反映漏れ2件を修正。indicator_1M_5側で新設・追加済みだった case 50(長期足 再エントリーロック,2026-09-10b導入だが反映漏れのまま放置されていた)・case 51(決済後同方向再エントリー禁止(5分間),2026-09-22新設)を追加。田島さんより「連続でエントリーしたが、間隔のルールはあるか」とのご指摘を受けてreason_20260922.csvを調査したところ、SELL→同一足内で平均足反転(reason30)決済→次の足でまた同方向のSELL、という決済を挟んだ連続エントリーが3回連続発生していたことが判明。既存の再エントリーロック(reason14/50)はいずれも「グレーに戻るまで」が条件のため対象外だった。indicator側にlastExitDir/lastExitTime(直近決済の方向・時刻)を新設し、同方向への再エントリーを決済から5分間(InpExitDirLockSec、既定300秒)禁止する安全網(reason51)をallowLogicCに追加(新規input InpUseExitDirLock)。取引ロジックの判定自体はindicator側のみで完結しており、本ファイル(EA)側はReasonTextのラベル追加のみ(reason CSV表示の反映漏れ修正)で、発注/決済ロジックへの変更は一切なし。 / 2026-09-18 ★バージョン4へ改名。田島さんご指示「バージョンを4にあげてもらえますか」により、ファイル名をDokaKotsu_EA_1M_3.mq5からDokaKotsu_EA_1M_5.mq5へ変更。参照先インジもDokaKotsu_indicator_1M_5へ改名されたためInpIndicatorNameを追従。ファイル名・#property version・EA_VERSION・起動時Print文を全て1M_5に統一。コード上のロジック自体の変更はなし(改名のみ)。 / 2026-09-16(3回目) ★FOMCのNY時間帯特例の再停止時刻を変更。InpFomcOpenEndHourJSTの既定値を24→23に変更(田島さんご要望「21時〜24時JSTを21時〜23時JSTに変更」)。これにより新規禁止が一時解除される時間帯は21:00〜23:00 JSTとなり、23:00からは(発表後の禁止が続くまで)新規禁止が再開する。InpFomcOpenStartHourJST(21時)・判定式(hNow>=Start && hNow<End)自体は変更なし、既定値のみの変更。 / 2026-09-16(2回目) ★小売売上高(Retail Sales)だけ新規禁止イベント予防線を解除できるようにした。田島さんご要望「小売売上高も解除してほしい」。新規input InpUseRetailStop(既定false=小売売上高は終日停止しない)を追加し、RefreshCalEvent()内でk==EV_RETAILの時だけthisBanを強制falseにする形で対応(InpUsePpiStop/PPIと全く同じ書き方)。ClassifyEvent()自体は小売売上高をこれまで通りEV_RETAILに分類したままなので、表示側DokaKotsu_US_Calendarや記録(evName等)には影響なし。他4指標(FOMC/CPI/NFP/ISM)の停止判定・停止時間帯計算には一切影響しない。 / 2026-09-16 ★段階決済(stagedMA)の「伸ばしモード(トレール未発動)」が持っていた独自のMA転換(31)/MAグレー(32)決済判定(buf25直読み+InpStagedGrayBars連続本数カウント)を撤去。田島さんより重ねてのご指摘(「MAグレー化決済をやめてほしいと何度も言っている」)を受けて調査したところ、通常モード(sExitでインジのrc読取)側は既にインジの判定に従っていたが、含み益が伸びてstagedMAに入った後の「伸ばしモード」だけはEAが自前でbuf25(背景方向)を読んで31/32を独自判定しており、「判定は全てインジ側に一元化する」という設計方針に反する形でMAグレー決済が生き残っていたことが判明。トレール発動後(g_trailArmed)と同じ「インジのreason30(平均足反転)のみで決済」に統一し、伸ばしモード側のReadBgDir/g_stagedGrayRun/InpStagedGrayBars依存を排除。これによりindicator_1M_5側の平均足前後平滑化(25/25)が、含み益の大小によらず常に唯一の決済判定として機能するようになる。 / 2026-09-15 ★ファイル名をDokaKotsu_EA_M1_2.mq5からDokaKotsu_EA_1M_5.mq5へ変更。参照先インジがDokaKotsu_indicator_1M_2→_1M_5へ改名され、決済用平均足(HA)の前後平滑化がInpHaPrePeriod/InpHaPostPeriod共に1→25に変更されたことに伴う対応。InpIndicatorName・#property version(1M5.00)・EA_VERSION(v1M5.0)・起動時Print文を1M_5に統一。indicator_1M_5側の決済用平均足の平滑化期間変更は、EAが読み取るバッファの意味・reasonコードの体系(reason30-34等)を変更するものではないため、EA側のロジック・ReasonText・reason CSV列構成への追加対応は不要。参照先名の変更のみ。 / 2026-09-10 ★PPI(生産者物価指数)だけ新規禁止イベント予防線を解除できるようにした。田島さんご要望「PPIで停止しているが、停止しないようにしたい」。新規input InpUsePpiStop(既定false=PPIは終日停止しない)を追加し、RefreshCalEvent()内でk==EV_PPIの時だけthisBanを強制falseにする形で対応(FOMCのNY時間帯解除(InpUseFomcNyWindow)と全く同じ書き方)。ClassifyEvent()自体はPPIをこれまで通りEV_PPIに分類したままなので、表示側DokaKotsu_US_Calendarや記録(evName等)には影響なし。他5指標(FOMC/CPI/NFP/ISM/RETAIL)の停止判定・停止時間帯計算には一切影響しない。 / 2026-09-03 ★ファイル名をDokaKotsu_EA_M1_1.mq5からDokaKotsu_EA_1M_5.mq5へ変更。参照先インジがDokaKotsu_indicator_1M_1→_1M_2へ改名されたことに伴う対応(田島さんご要望「インジ側とEA側のバージョン番号を常に一致させる」)。InpIndicatorName・#property version(1M2.00)・EA_VERSION(v1M5.0)・起動時Print文を1M_2に統一。indicator_1M_5側で行われたM15フィルター・スパイク面積閾値・ADX関連の調整、決済用平均足の平滑化期間変更(前8/後10)等は、いずれもEAが読み取るバッファの意味・reasonコードの体系を変更するものではないため、EA側のロジック・ReasonText・reason CSV列構成への追加対応は不要。参照先名の変更のみ。 / 2026-08-27(6回目) ★1分足専用の新規分岐版(DokaKotsu_EA_M1_1)。DokaKotsu_EA_18.mq5(v18.04)から派生。参照先インジをDokaKotsu_indicator_1M_1へ変更。EA_VERSIONを\\\"vM1.1.0\\\"に変更(5分足版v18.0系とは別系統と分かるように)。ATR記録(iATR PERIOD_M5固定)は変更なし=indicator_1M_1側の平均足M5固定化と一貫性を保っている。田島さんご要望「5分から1分にする、平均足だけは5分のまま」を受けて、5分足版と1分足版の成績を見比べる検証用に新規作成。 / 2026-08-27(5回目) ★reason CSVの旧fast_spike_range/fast_spike_thresh列(高速版廃止分)を、新しいMinor/Majorスパイク方式の実測値・閾値(minor_spike_height/minor_spike_thresh/major_spike_height/major_spike_thresh、indicator buf64/69/68/70)に置き換え。田島さんご要望「エントリーリーズンでこの値がわかるように」を受けての対応。判定にはこれらの列自体は使わない・記録専用。 / 2026-08-27(3回目) ★田島さんご指摘により発覚: reason CSVの列一覧コメントが、WriteReasonRow()関数冒頭とファイル冒頭付近(旧ヘッダー部)の2箇所に存在しており、ファイル冒頭側は2026-07-21で更新が止まったまま(以後追加されたspike_area_last/wma_slope_dist/dbg_*/fast_spike_*等が反映されず)放置されていた。「一か所で管理する」方針に反していたため、ファイル冒頭側の列一覧は削除しWriteReasonRow()側への誘導コメントに置き換え、以後は列一覧の管理場所をWriteReasonRow()1箇所に統一。取引ロジックへの影響なし・コメント整理のみ。 / 2026-08-27(2回目) ★reason CSVにdbg_last_entry_dir/dbg_bars_since_entry/dbg_ha_runs_since_entry/fast_spike_range/fast_spike_thresh列(indicator buf65-69)を追加。田島さん報告(18:35のreason48が閾値未満に見えるのに発動/19:00にreason45・47がどちらも発動しなかった)の原因調査用。判定にはこれらの列自体は使わない・記録専用。WriteReasonRow()内の全列一覧コメントも合わせて更新。 / 2026-08-27 ★reason CSVにwma_slope_dist列(indicator buf45、ベースWMAの閾値距離)を追加。田島さん報告(23:45時点でチャート上は下降に見えたのにWMAがまだグレー扱いだった)を受けて、あと僅かで色が付く/まだ全然閾値に届いていない、を数値で確認できるようにした。判定にはこの列自体は使わない・記録専用。あわせて、WriteReasonRow()内にreason CSVの全列一覧コメント(唯一の管理場所)を新設。以後この関数(ヘッダー行・値書き込み行・一覧コメントの3箇所)だけを見ればreason CSVの構成が把握できるようにした(田島さんご要望「列を追加しても後で何だったか分からなくならないよう、これだけで管理したい」への対応)。 / 2026-08-26(2回目) ★田島さんご要望「今後はインジ側とEA側のバージョン番号を常に一致させる」を受けて、ファイル名をDokaKotsu_EA_17→_18へ変更(インジ側_18と揃える)。あわせて長年ズレたままだったEA_VERSION(\\\"v15.0\\\"のまま6バージョン分放置されていた)を\\\"v18.0\\\"に修正、さらに起動時Print文が6バージョン前のまま(\\\"DokaKotsu_EA_12 build:v12.0-0706 起動(indicator_12リンク更新)\\\")残っていた古いコードも発見し\\\"DokaKotsu_EA_M1_1 build:v18.0 起動(indicator_18リンク更新)\\\"に修正。いずれも表示・ログ文字列のみの修正で取引ロジックへの影響なし。 / 2026-08-26 ★参照先インジをDokaKotsu_indicator_17→_18に変更(高速スパイク検出追加に伴う)。ReasonTextにcase 48=\\\"高速スパイク決済(1本判定)\\\"(2026-08-26にindicator_18側で新規追加。スイング確定を待つ既存reason33とは別ラベル)を追加。取引ロジックへの影響なし・参照先名/reason CSV表示ラベルの追加のみ。 / 2026-08-25 ★2点対応。①reason CSVにspike_area_last列(indicator buf42、保持型スパイク面積)を追加。従来は単発パルスのbuf41しか記録しておらず、田島さん報告「スパイクに気づくまでに15分かかった」原因になっていた。保持型なら次のスパイクまで全行に値が残るため、エントリーした瞬間の行を見ればスパイクの有無に一目で気づける(判定ロジックには使わない記録専用)。②ReasonTextの反映漏れ2件を追加修正: case 46=\\\"MACD免除エントリー(VolScoreグレー免除)\\\"(2026-08-22にindicator側で追加済みだった分の反映漏れ)、case 47=\\\"平均足内2回目エントリー禁止\\\"(2026-08-25にindicator側で新規追加。HAの色が変わらない間は1回しかエントリーしない安全網)を追加。取引ロジックへの影響なし・reason CSV表示ラベルの修正/列追加のみ。 / 2026-08-21(2回目) ★FOMCのみ、NY時間帯(21時〜24時JST)は新規禁止を一時解除するよう変更。新規input InpUseFomcNyWindow(既定true)・InpFomcOpenStartHourJST(既定21)・InpFomcOpenEndHourJST(既定24)を追加。開始時刻(InpEvStopHourJST=14時)・発表後の再停止(postEnd)ロジックは変更なし。FOMC以外(CPI/NFP/ISM/PPI/小売売上高)の挙動も一切変更なし。田島さんご要望「開始はそのまま/21時に復活/24時から再停止」を受けての対応。 / 2026-08-21 ★ReasonTextの反映漏れ2件を修正(indicator_17側で追加済みだったreason44/45がEA側に未登録のまま「(未評価)」表示になっていた)。case 44=\"MACD免除エントリー(タイミングずれ免除)\"(2026-08-16にindicator側で追加済みだった分の反映漏れ)、case 45=\"同方向連続エントリー禁止\"(2026-08-21にindicator側で新規追加。決済を経ずに直近と同方向へ短時間で連続エントリーする事故を防ぐ安全網)を追加。取引ロジックへの影響なし・reason CSV表示ラベルの修正のみ。田島さん報告(2026-08-21 10:35 BUY→10:45 BUYと決済を挟まず同方向へ連続エントリーした事例)を受けての対応。 / 2026-08-14(2回目) EA_17 / 16→17へバージョンアップ。参照先インジをDokaKotsu_indicator_16→_17に変更(スパイク面積閾値InpSpikeAreaThreshの既定値300→1000への変更に伴う)。この閾値はインジ側の単一入力値でreason33/34・reason39・マーケットステイトSP判定の3箇所に共通で使われている値のため、EA側はreason CSV/entry・result snapshotの値がそのまま1000基準に変わるだけで、EA自体のロジック・ファイル名以外のコード変更は無し。ファイル名/#property version/InpIndicatorNameを16→17へ統一。 / 2026-08-14 EA_16d / ★【重大】トレーリング発動(InpTrailGiveback)がSLを一切張らない不具合を修正。従来はg_peakPipMFE(ピーク含み益)からInpTrailGiveback(既定25%)吐き出した瞬間にg_trailArmedをtrueにし『平均足決済モードへ切替』するだけで、その後は平均足反転(reason30)が出るまで指標のシグナル待ちのみだった(価格ベースのSLは一切変更していなかった)。実例2026-08-14 09:30 SELLエントリー、09:45にMFE到達→トレーリング発動(ea_note記録)、しかし平均足反転がラグったため09:57まで含み益が65.2pip→0(建値)まで無制限に溶けた。対策: g_trailArmedがtrueになった瞬間、ArmTrailStopSL()を新設して発動時点のギブバック水準(peakPipMFE*(1-InpTrailGiveback))を価格SLとして即座にPositionModifyで建てるよう変更(ManageBreakevenの段階建値と同じ『利側にしか動かさない』パターンを踏襲、既存の段階建値SLより不利な位置には絶対に置き換えない)。これにより平均足反転を待つ間も価格ベースの下限が機能し、無制限のギブバックを防ぐ。判定ロジック(エントリー/インジ側)には一切影響なし、EA側のリスク管理(SL)のみの変更。田島さんの実トレード分析(09:30 SELL、決済09:57:28、pips=0.00)がきっかけ。 / 2026-07-25 EA_16c / ★【重大】entry_*.jsonl/result_*.jsonlが排他ロックされ、read_ea_trades.py(Python)はもちろん、エクスプローラーでのコピーやメモ帳での閲覧まで「使用中」で弾かれる不具合を修正。2026-07-15dでファイルを開いたまま保持する方式(GetDailyFileHandle)に変えて以降、FileOpenの引数にFILE_SHARE_READが無く、EA稼働中は他プロセスから一切読めない排他ロックのままだった(田島さんが該当jsonlを開こうとして「使用中」エラーになった報告で発覚)。GetDailyFileHandleのFileOpen引数にFILE_SHARE_READを追加し、書き込みはEAが保持したまま、他プロセスからの読み取り(read_ea_trades.pyの自動取込含む)を常に許可するよう修正。reason_YYYYMMDD.csv(WriteReasonRow)は元々毎回開閉する方式のため対象外(今回のロック不具合は発生していない)。 / 2026-07-21 EA_16b / ★参照先インジをDokaKotsu_indicator_15→_16に変更(ボラティリティ(VolScore)最終ゲート追加に伴う対応)。indicator_16がエントリー判定の最終チェックとしてVolScore(EMA(High-Low,5)とEMA(それ,20)の乖離率%)を追加し、InpVolScoreLowPct(既定0%)未満をグレー(ボラ不足)としてreason43でブロックするようになったため、EA側は①ReasonTextにcase 43を追加、②reason CSVの列構成末尾にvolscore(buf61の値をそのまま記録、判定には未使用の記録専用)を追加、の2点で追随した。判定ロジック自体はこれまで通りindicator側に一元化されたまま、EA側の発注ロジックへの変更はなし。 / 2026-07-20 EA_16 / ★DokaKotsu_Dashboard.mq5の■(停止)ボタン挙動を変更: 従来は新規禁止のみだったが、保有中に押された場合はその場で保有を強制決済してから停止するよう変更(田島さん要望)。保有していなければ従来通り新規禁止のみ。OnTick内でinWeekendFlatブロックの直後にdashPause&&pos!=0の分岐を追加し、CommandExit(5,\\\"ダッシュボード停止\\\")→ForceCloseMyPositions経由で他の強制決済(緊急逆行/イベント/週末)と全く同じ再送の仕組みに乗せた。g_lastExitMethod=55(ExitGroup範囲を50-54→50-55へ拡張)・g_exitKind=5を新設。判定(押す/押さないの意思決定)はダッシュボード側のボタン、実行(決済発注)はEA側という役割分担はこれまで通り変更なし。 / 2026-07-16 EA_15b / ★小売売上高(Retail Sales)をイベント予防線の対象に追加(EV_RETAIL新設)。他5指標(FOMC/CPI/NFP/ISM/PPI)と全く同じ扱い=RefreshCalEvent()は指標ごとに個別ロジックを持たず、分類さえされれば共通のInpEvStopHourJST(既定14時JST)起点・InpEvAfterHours時間後までのルールが自動的に適用されるため、ClassifyEvent()への追加だけで済んだ。DK_StopReasonCode=14、evName=\"小売売上高発表前停止\"。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにRETAILを追加。 / 2026-07-15h EA_15 / ★14→15へバージョンアップ。エントリーリーズンの修正2点に対応: ①WMA/M15タイミングずれの見送り確定(reason41,InpWmaM15MaxBars既定3=15分)。WMAが点灯してから既定3本以内にM15が追いつかなければ、以後M15が追いついてもそのWMA継続中は見送り確定(田島さん整理: 15分側が遅れる=波が速い=15分足で見ると終盤でリスクが高いため)。②BB×KC(regimeSqueeze)条件をロジックCに追加(reason42)。まだスクイーズ中(未ブレイク)ならWMA/M15/長期足が揃っていても見送り。参照先インジをDokaKotsu_indicator_15に変更、ReasonTextにreason41/42を追加。 / 2026-07-15g EA_14h / ★DokaKotsu_Dashboard.mq5の■(取引停止)/▶(復活)ボタンと連動。IsDashboardPaused()新設(GlobalVariable DK_DASH_TRADEPAUSE_<magic>を参照)。新規エントリーの統合判定・停止理由テキスト・DK_StopReasonCode(新規コード13)に組み込み。保有中ポジションはこのボタンでは決済されない(新規停止/再開のみ)。 / 2026-07-15f EA_14g / ★exit_groupに\"RISK\"(EA側リスク管理の強制決済)を追加し、5パターンに新しいexit_method番号(50=緊急逆行/51=イベント決済/52=週末強制/53=ウォッチドッグ)を割り当て。従来この5パターンはg_lastExitMethodを更新しないか(緊急逆行/イベント/週末)、reason33(スパイク面積決済)と同じ33を使っていた(ウォッチドッグ)ため、exit_groupが実態と異なる分類(直前の値の使い回し、またはSPIKEへの誤分類)になるバグがあった。ウォッチドッグは53に変更し衝突を解消。なおSL(ブローカー側の逆指値直接約定)はOnTradeTransaction未実装のため、現状result_snapshot自体が記録されない既知の課題として残る(54を予約済み・別途対応予定)。 / 2026-07-15e EA_14f / ★イベント新規禁止ロジックを全面刷新。従来の「指標ごとに発表hb時間前から」(CPI/NFP/ISM/PPI=3h、FOMC=10h)+リーク時間帯(発表30分前は新規OK)+発表1分前の建値移動(スパイク保険)という仕組みを廃止し、対象5指標(FOMC/CPI/NFP/ISM/PPI)すべて共通で「発表当日のJST14時(InpEvStopHourJST)から新規禁止、発表からInpEvAfterHours(既定1)時間後まで継続」というシンプルな方式に変更(米国休日停止と同じ考え方に統一)。発表が0時〜14時未満(FOMC等の深夜発表)の場合は前日14時が起点になるよう計算。InpFomcHoursBefore/InpCpiNfpHoursBefore/InpEvLeakMin/InpEvAfterMin/InpEvBeMinBefore・g_evNeedBE・ForceEventBreakeven()は削除。g_evStateは0/1のみ(リーク状態=2は廃止)。 / 2026-07-15d EA_14e / ★【重大】entry/result JSONLが書込のたびに既存内容ごと消えるバグを修正。田島さんの環境で実際に確認(05:40の記録がファイルに残ったまま11:40に新規書込したところ、05:40分が消えて11:40分だけの1行になった=ファイルサイズが1行分のまま)。原因はMQL5のFileOpen(FILE_READ|FILE_WRITE)+FileSeek(SEEK_END)方式が、ドキュメント上は追記できるはずが実際には信頼できないという既知の問題(同様の報告がMQL5フォーラムに多数あり)。対策として、ファイルを都度開閉せずEA稼働中は開いたまま保持し(GetDailyFileHandle新設,g_entryFileHandle/g_resultFileHandle)、日付が変わった時だけ閉じて次の日のファイルを新規に開く方式へ変更。OnDeinitでハンドルを確実にクローズ。 / 2026-07-15c EA_14d / ★entry_*.jsonl/result_*.jsonlの文字コードバグを修正。コードページ未指定のFileOpenだとシステムANSI(日本語WindowsはCP932)で書かれてしまい、Python側(json.load時UTF-8前提)でexit_why等の日本語項目が文字化けしていた(数値項目には影響なし)。mt5_calendar_today.json(2026-07-08)で使ったCP_UTF8明示の書き方に統一して解消。実データ(result_20260715.jsonl)の生バイトでCP932混入を確認済み。 / 2026-07-15b EA_14c / ★決済理由の3分類(exit_group)を追加。田島さんとの会話で判明した誤解を訂正: reason34(ウェーブクロス救済)は独立した4つ目の決済理由ではなく、reason33(スパイク面積直接決済)が次の足で間に合わなかった時の保険であり、あくまで『スパイク決済』という1つの仕組みの一部。決済は本質的に平均足(30)/WMA(31,32)/スパイク(33,34)の3種類しかないという整理に基づき、ExitGroup()新設・result_snapshotにexit_group(\"HA\"/\"WMA\"/\"SPIKE\")を追加した。既存のexit_method(30-34の生番号)はそのまま残し、分類だけを別フィールドとして追加(記録専用・決済ロジックへの影響なし)。 / 2026-07-15 EA_14b / ★PPI(生産者物価指数)をイベント予防線の対象に追加(EV_PPI新設)。CPIと同じ扱い(発表前hbはInpCpiNfpHoursBeforeのまま自動適用、DK_StopReasonCode=12、evName=\"PPI発表前停止\")。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにPPIを追加要(別途反映が必要)。 / 2026-07-13 パターンB対応: reason CSVにold_chain_reason列(indicator buf59)を追加、entry_snapshot(JSON)にもold_chain_reasonを追加。indicator_14がInpEntryModeBBKCOnly=trueの間、実際の発注はBB×KC(regime)+再エントリーロックのみで行われるが、この列で「もし従来の全フィルターのままだったらどう判定されたか(0=旧ロジックでも許可)」を確認できるようにした。EA自体の発注ロジック(buf7/8/9読取)は変更なし=判定は完全にindicator側に一元化されたまま。決済ロジックへの影響なし。 / 2026-07-12b EA_14 / ★13→14へバージョンアップ。reason CSV・entry_snapshot(JSON)にBB/KCレジーム(regime=indicator buf53,regime_ratio=indicator buf58・新規)を追加(判定ロジックへの影響なし・記録専用)。参照先インジをDokaKotsu_indicator_14に変更。 / 2026-07-10b EA_13h / ★indicator_13(2026-07-10e)の相場状態(buf57,SQ/TR/SP)対応。reason CSVのreason列先頭に状態接頭辞([SQ]/[TR]/[SP])を必ず付与するMarketStateText()を追加し、どのブロック理由がどの状態の中で起きたことかを一目で判別できるようにした(取引ロジックへの影響なし・記録専用)。 / 2026-07-10 EA_13g / ★indicator_13(2026-07-10)のレジーム判定(buf53,reason40)・スパイクADX禁止(buf50-52,reason39)・後段フィルター影判定(buf54-56)への対応。①entry_snapshotのjudgmentにspike_adx_ban_active/trigger_area/bars_since(buf50-52)・regime(buf53)・shadow_wave/adx/zz(buf54-56)を追加。②reason CSVにshadow_wave/adx/zz(buf54-56)の3列を追加=reason40等の上流ブロックでその足の実判定が隠れていても、Wave(26/27/28)・ADX継続性(29/36)・ZigZag(35)がその時点で通過/ブロックのどちらだったか常に記録できるようにした。③ReasonTextにreason39/40のケースを追加(未登録のため従来「(未評価)」表示になっていたバグを修正)。いずれも取引ロジックには一切影響しない記録専用。 / 2026-07-09e EA_13f / ★「勘に頼らない敗因分析」残項目を一括追加。judgment: cooldown_left(buf44)/wma_slope_dist(buf45)/long_slope_smoothed・long_slope_dist(buf46/47)。context: wave_fast_raw・wave_slow_raw(buf48/49)、day_of_week・hour_jst(JST基準)、mins_to_next_event・mins_since_last_event(CalendarValueHistoryを直接照会、DokaKotsu_US_CalendarのJSONには依存しない独立取得)。GetNewsMinutes()新設。判定ロジックへの影響なし。 / 2026-07-09d EA_13e / ★entry_snapshotのjudgmentにspike_area_last(buf42)/spike_bars_since(buf43)を追加。spike_area(buf41)は確定した1本の足でしか値が立たない単発パルスのため、エントリーとほぼ噛み合わず相関が見えなかった。保持型の値と経過本数を追加し「何本前にどれくらいのスパイクがあったか」を分析できるようにした(判定ロジックへの影響なし)。 / 2026-07-09c EA_13d / ★entry_snapshotのjudgmentにspike_area(buf41)を追加。exit側resultには既にspike_areaがあり非対称だったため、エントリー直前のスパイク局面も記録できるようにした(判定ロジックへの影響なし・記録項目の追加のみ)。 / 2026-07-09b EA_13c / ★スパイク(33)・ウェーブクロス救済(34)を段階決済/トレーリング中でも常に最優先で即決済するよう修正。従来は段階決済モード(stagedMA)に入ると、その中の平均足反転/MA転換/MAグレー判定しか見ておらず、インジ側がスパイクを検知していても無視されていた(=「最優先」という設計意図とEAの実装がズレていた)。EXIT分岐の一番先頭でrc==33/34を早期リターンする形にして解消。300以上の面積はほとんど出現しない前提のため、各モードとの共存ロジックは作らず単純な最優先分岐にしている。 / 2026-07-09 EA_13b / ★スパイク決済(indicator_13が2026-07-08導入)のラベル漏れを修正: 通常モードEXIT分岐がrc==33(スパイク面積)/34(ウェーブクロス救済)を認識せず「決済(✖)」+g_lastExitMethod=30に誤ラベルしていたのを解消(実際の決済注文自体は変更なし、記録の正確性のみ修正)。result_snapshotに exit_method(30-34の実際の決済方式)と spike_area(indicator buf41、スイング確定時の面積実測値。閾値300未達の不発分も含む)を追加。 / 2026-07-07 EA_13 / ★entry/result JSONスナップショット追加(InpLogSnapshot,既定true)。参照先=DokaKotsu_indicator_13。エントリー成功時にjudgment(判定に使った値)+context(indicator buf28-40の未使用ロジック探索用データ)をentry_<magic>_<time>.jsonへ、決済成立時にresult(pips/勝敗/保有時間/MFE/MAE/RR実績)をresult_YYYYMMDD.jsonlへ1行追記。いずれも取引ロジックには一切影響しない記録専用(WriteEntrySnapshot/WriteResultSnapshot,保存先=InpReasonDir配下)。MAE追跡をUpdateMFEに追加(g_peakPipMAE)。 / 2026-07-06 EA_12 / ★米国休日バグ修正: 週末(土/日)付けの祝日エントリーをRefreshUSHolidayでスキップするよう変更(day_of_week==0/6を無視)。実例2026-07-06:独立記念日が金曜(観測日)と土曜(実日付)の重複登録で、土曜側がJST変換後に翌週月曜と誤一致し平日なのに米国休日停止が誤発動していた問題に対応。スキップ発生時は1回だけPrintで確認ログ出力 / 参照先=DokaKotsu_indicator_12 / 理由テキストにreason29(ADXグレー,indicator_11で導入済みだったが漏れていた分)・35(ZigZag弱波)・36(ADX継続未達)を追加 / CSVにadx(buf26)・zigzag(buf27)列を追加 / ★イベント予防線にISM追加(EV_ISM,ClassifyEvent/DK_StopReasonCode=11)。重要度フィルターをHIGHのみ→MODERATE+に緩和(表示側DokaKotsu_US_Calendarと統一。ISMはMODERATE分類のため従来HIGHのみでは検出不可だった)。時間窓はInpCpiNfpHoursBeforeを流用。判定ロジックはインジ側のまま変更なし / 2026-06-20 EA_9 / 参照先=DokaKotsu_indicator_9(Ver8.0) / MT5カレンダー(CPI/NFP/FOMC)+米国休日+年末年始 / 停止理由GV出力 / M15状態(buf13)読取+リーズンに15分足列 / 連敗ロット+自動復活 / ドテン廃止 / 2026-06-22:日次pip停止(InpMaxDayLossPip)+復活で基準リセット+チャート3行警告 / 2026-06-22:平均足色列(buf14)+決済理由細分化(30/31/32)+出来高(21) / 2026-06-23:損切り再決済(✖再送+広スリッページ)+緊急逆行ストップ(任意・既定OFF)+救済GV(Watchdog表示) / 2026-06-23:段階決済(含み益トリガーで平均足→MA切替)+15分グレー予備決済 / 2026-06-24:v8.3 インジ長期足(MTF3本パーフェクトオーダー門番,reason22)対応・理由テキスト追加 / 2026-06-24:v9.0 ファイル名/版を8→9統一(インジと同番号)・参照先=DokaKotsu_indicator_9・案Aで15分グレー予備決済OFF(InpExitOnM15Gray=false)・CSVに長期足状態列(buf15読取)追加 / 2026-06-28:EA_10 参照先=DokaKotsu_indicator_10・理由テキストに24/25/26を追加(24=フラッシュ回避,25=長期が後発,26=Wave未反転)。判定はインジ側のまま(EAは実行+リスク管理+決済再送)。#property versionを10.00に整合 / 2026-06-30:段階決済をbuf25(背景方向)自力判断に改良(反転=31/グレー連続InpStagedGrayBars=32。インジ理由32待ちの詰まりを解消)・ウォッチドッグ決済指示GV(DK_WD_EXITREQ)受信→即決済+再送(手法33)・自動売買/連携状態GV(DK_EA_TRADEOK/LINKOK)出力・決済手法をCSVリーズン末尾に保持表示(30平均足/31MA転換/32MAグレー/33WD,次エントリーまで) / 2026-07-01:再突入抑制(2発目キラー)=21時前(NY時間外,夏21/冬22)にMAグレー決済したら同方向を背景(確定足)再点灯InpRelightBars本までロック・NY時間は無効/解除・CSVリーズン末尾にATR(14)pipを全行記録(ボラ実証データ用) / 2026-07-02:トレーリングストップ=段階決済(含み益100pip超)中にピーク利益(MFE)のInpTrailGiveback(25%)を吐き出したら発動し平均足決済モードへ切替(平均足反転30で決済=決済(平均足反転/TS))。ea_note列に トレーリングストップ発動/決済OK(平均足反転/TS) を記録 / 2026-07-03:米国休日判定をチャート表示側(DokaKotsu_US_Calendar.mq5)と連携。RefreshUSHolidayが本日分(時刻問わず)の祝日検出+開始/終了時刻をGV出力(DK_EA_USHOL_ACTIVE/TODAY/START/END_<magic>)。表示側はDK_EA_HB心拍の鮮度でEA生存を確認しGV値をそのまま表示=WYSIWYG / 2026-07-03:InpUSHolStopHourJST既定値を18→14に変更(米国休日の新規停止開始をJST14時からに前倒し) / 2026-07-06:EA_11 インジ名称変更(DokaKotsu_indicator_10→DokaKotsu_indicator_11)に伴いEA側の参照名・ファイル名・バージョン表記を11に統一整合(判定ロジックはインジ側のまま変更なし)"
+#define EA_VERSION "v1M18.0"
+#define EA_BUILD   "2026-11-14(2回目) ★日本市場午後停止を13:00〜17:59に変更 / 2026-11-14 ★米国休日から退役軍人の日/コロンブスデーを除外(InpUSHolExcludeKeys) / 2026-11-13(4回目) ★利益ロックのルール(段階建値/ゆっくりトレール3段/発表前ロック/ロック表/保有中の状態)を、停止規則JSONの \"lock_rules\" に追加(モニターの停止規則タブ用)。 / 2026-11-13(3回目) ★ゆっくりトレールを3段で加速(比率 0.50/0.70/0.85。境目 80・150・250pip。MFE100→+10/200→+70/300→+147.5pip)。 / 2026-11-13(2回目) ★発表前ロック(B2: 発表5分前から、含み益の50%にSLを追従)を追加。ゆっくりトレールを比率0.30→0.40・更新幅5→2に。 / 2026-11-13 ★一目スパンの診断ログ(spanlog_*.csv・起動時のspanlog_backfill_*.csv)を追加(記録のみ)。 / 2026-11-11 ★起動・終了の記録(止まった原因を、あとから見つける): 終了の理由・時刻、起動時の停止時間を、Journalと理由CSVに残す。 / 2026-11-09(5回目) ★世代を 1M_7→1M_18 に更新(読み込むインジ名を DokaKotsu_indicator_1M_18 に。判断・発注の変更なし)。 / 2026-11-09(4回目) ★長期足の診断ログに期間・MA種類を追加(longlog_*.csv)。理由CSV列25〜31が一目スパンの値を読んでいた不具合を修正(0に戻す)。 / 2026-11-09(3回目) ★長期足の診断ログ(long_YYYYMMDD.csv・起動時のlong_backfill.csv)を追加(記録のみ)。 / 2026-11-09(2回目) ★「矢印GVが古い」の警告に、最後の更新時刻・チャートIDを追加(調査用)。 / 2026-11-09 ★裏のインジがBUY/SELLを出したのに、EAが入らなかった時の理由(チャートの矢印GVの状態)を、理由CSVのea_noteに残す(記録のみ)。 / 2026-11-06 ★裏のインジの計算範囲を直近N本に(InpIndCalcBars=30000。iCustomの第2引数)。処理遅れ対策。 / 2026-11-05(2回目) ★指標の分類をCalendarインジの1か所に統一(ダッシュボードと同じ出どころ。GV DK_CAL_EV_*を読む。無い時だけ従来のEA直接判定)。ADP・労働生産性を雇用統計にしない。 / 2026-11-05 ★毎日の時間帯の停止を名前つきに: オセアニア市場停止=4:00〜8:59(InpResumeHourJST=9) / 10時のみ取引停止(code20) / 日本市場午後停止=13:00〜18:59(code21)。0〜3時台は取引可。旧スケジュールは既定OFF。 / 2026-11-04(2回目) ★停止の分類GV(DK_EA_STOPCAT/STOPCNT)を公開。イベント予防線に理由コード19を新設。手動停止(13)が30〜60秒更新で上書きされる不具合を修正(Watchdog表示用。判定は不変)。 / 2026-11-04 ★エントリー時のRRをGV DK_EA_ENTRY_RR_<magic>で公開(ダッシュボード表示用・記録専用)。 / 2026-11-03(5回目) ★エントリー記録のcontextに rr_list(\"RR240 RR100 RR40\" の形。エントリー時の価格で計算し直したRR一覧)を追加。ReasonTextに56(RR不足)を追加。記録専用。 / 2026-11-03(4回目) ★エントリー記録のcontextに vstop(Dokakotsu_VolatilityStopのSTOP/RUN/NA)を追加(InpLogVstop。記録専用)。 / 2026-11-03(3回目) ★ISMのみ停止の途中に開放を追加(InpUseIsmOpenWindow: 14時停止開始はそのまま・21時に開放・発表30分前に再停止・発表後1時間まで停止)。他の指標には影響しない。 / 2026-11-03(2回目) ★エントリーリーズンの記録(dow_*)を、インジ「Dokakotsu_Risk-Reward Ratio」のRR候補(RR1と、エントリー方向の最良)に切り替え。記録専用。 / 2026-11-03 ★ReasonTextにreason55(一目スパンのルール)と54(VolatilityStop)を追加。EAのロジックの変更なし。 / 2026-11-02 ★エントリー記録(entry_*.jsonl)のcontext(エントリーリーズン)に、Dokakotsu_Dow_Indicator(同じチャート)の「現在値から見たRR」と使ったラインをdow_*として記録(InpLogDowRr=true。記録専用で発注には影響しない)。 / 2026-10-30 ★バージョン7へ改名。ファイル名をDokaKotsu_EA_1M_6.mq5からDokaKotsu_EA_1M_7.mq5へ変更し、参照先インジ(DokaKotsu_indicator_1M_7)に合わせてInpIndicatorName・#property version(1M7.00)・EA_VERSION(v1M7.0)・起動時Print文・矢印GV未検出の警告文を1M_7に統一。EA自体のロジック変更はなし。 / 2026-10-28(2回目) ★PCEを停止ルールに追加。指標種別EV_PCE(ClassifyEventでPCE/個人消費支出/Personal Consumptionを判定)・input InpUsePceStop(既定true)・停止理由コード18「PCE発表前停止」・停止規則JSON(PCE)を追加。挙動は他指標と同じ(発表当日JST14時〜発表後InpEvAfterHours)。発注・決済ロジックの変更なし。 / 2026-10-28 ★利益ロックを80pipから+ゆっくりトレール。段階建値の1段目InpBEtriggerPipsを100→80に変更し、新規InpUseSlowTrail(既定true)/InpSlowTrailRatio(0.30)/InpSlowTrailGapPips(10)/InpSlowTrailStepPips(5)を追加。1段目到達後、MFEが伸びた分の30%だけSLの利側ロックを引き上げ続ける(段階建値の各段と比べ有利なほうを採用、SLは利側にしか動かさない)。段階決済の切替(100)・トレール発動(25%)・決済ロジックは変更なし。 / 2026-10-26(3回目) ★バージョン6へ改名。ファイル名をDokaKotsu_EA_1M_5.mq5からDokaKotsu_EA_1M_6.mq5へ変更し、参照先インジ(DokaKotsu_indicator_1M_6)に合わせてInpIndicatorName・#property version(1M6.00)・EA_VERSION(v1M6.0)・起動時Print文・矢印GV未検出の警告文を1M_6に統一。EA自体のロジック変更はなし。 / 2026-10-26(2回目) ★取引時間スケジュール(毎日・JST)を追加。InpUseHourSchedule/InpAllowHoursJST(既定9,11,12,19-23)で許可した時以外は新規停止(保有中は決済しない)。停止理由コード17、停止規則JSON、entryBlocked(インジの矢印抑止)、GV DK_EA_SCHED_<magic>に反映。 / 2026-10-08 ★EAの新規停止状態をGVでインジへ公開(DK_EA_BLOCK_<magic>/DK_EA_BLOCK_TS_<magic>=停止中か・生存、DK_EA_OCEANIA_<magic>/DK_EA_JSTOFF_<magic>=履歴再計算用のオセアニア停止時間帯とJST時差)。EAが入れない停止中にインジが出した矢印がトレンド1回分のロックを消費し、EAが入れる時間も1日中矢印が出なくなる問題(10/9)への対応。ReasonTextにcase 53を追加。発注・決済ロジックの変更なし。 / 2026-10-06 ★エントリーをチャートの矢印に完全一致させた。EAは本体インジが公開するGV(DK_SIG_<チャートID>、直近の確定足の矢印)だけを読んで、矢印が出た足の次の足の間に発注する(新規input InpEntryFromChartArrow既定true/InpSigStaleSec180。GVが無い・古い場合はエントリーしない)。iCustomの裏インスタンスにはfalseを渡して矢印GVを公開させない。決済は変更なし。 / 2026-10-02 ★バージョン5へ改名。indicator_1M_4がDokaKotsu_indicator_1M_5へ改名(長期足をKAMA→SMA・期間900→800に変更)されたことに伴い、ファイル名をDokaKotsu_EA_1M_4.mq5からDokaKotsu_EA_1M_5.mq5へ変更。InpIndicatorName・#property version・EA_VERSION・起動時Print文を全て1M_5に統一。EA自体のロジック変更はなし。 / 2026-09-28(2回目) ★①オセアニア停止解除を6:45へ(InpResumeHourJST/MinJST既定8:58→6:45。米国休日・連敗復活・連敗の日境界も共通でこの時刻基準)。②当日値幅(ブローカー日足の高値-安値)が1000pip以上ならNY時間(夏21/冬22〜翌5時JST)は新規停止(InpUseNyRangeStop/InpNyRangeStopPip、停止理由コード16)。 / 2026-09-28 ★ReasonTextにcase 52(平均足がエントリー方向と逆(即決済回避))を追加。indicator_1M_5側のInpUseHaEntryGate追加(エントリー直後の即決済防止)に伴う表示ラベルの反映のみで、発注/決済ロジックの変更はなし。 / 2026-09-25 ★日本の祝日を終日(00:00〜24:00 JST)新規停止するルールを追加。田島さんご要望「日本の休日は終日全て停止にしたい」。従来、日本の祝日判定自体はDokaKotsu_Calendar_v7.mq5(GetJPHolidayName、内閣府の法定祝日+振替休日+国民の休日を判定し、GV(DK_CAL_JPHOL_TODAY/ACTIVE/START/END_<magic>)へ書き出す)側に既に存在していたが、EA側はこのGVを一切参照しておらず、実際の新規停止には全く反映されていなかった(表示専用のまま放置されていた)。今回、新規input InpUseJPHoliday(既定true)を追加し、RefreshJPHoliday()でDK_CAL_JPHOL_TODAY_<magic>を読み取り(判定ロジックはCalendarインジ側の1箇所のみに一元化、EA側では祝日の計算を一切行わない)、新規エントリーの統合判定条件・診断行のnoteテキスト・DK_StopReasonCode(新規コード15)・StopReasonName・停止ルールJSONに組み込んだ。Calendarインジ側の停止窓は当日14:00〜翌0:00の部分窓だが、今回のご要望は「終日全て」のため、EA側ではTODAY(当日祝日か否か)のみを使い、JST00:00〜24:00の完全終日停止として扱う(Calendarインジ自体の部分窓ロジックは変更していない)。Calendarインジ未アタッチでGVが見つからない場合は1回だけ警告を出し、その間は日本祝日停止は機能しない(米国休日/正月休み等、他の停止ルールには一切影響なし)。 / 2026-09-22(2回目) ★正月休み終日停止のルールを変更。田島さんご指示「元日だけでなく、31日・2日・3日も加えて正月休みとする」により、従来の「年末年始(12/30〜1/3固定)」を「正月休み(12/31〜1/3固定)」へ変更(12/30を対象から除外)。IsYearEndStop()の判定式をmon==12&&day>=30からday>=31に変更。ラベル・コメント・停止ルールJSON('name':'年末年始'→'正月休み','from':'12/30'→'12/31')・DK_StopReasonCode/ReasonTextのcase7ラベル・診断行のnoteテキストも全て「正月休み」に統一。祝日カレンダー(GetJPHolidayName、内閣府の法定祝日に基づく)側は今回変更していない(12/31・1/2・1/3は法定の祝日ではないため、Calendarインジの祝日判定には加えず、あくまでEA側の終日停止ルールとしてのみ扱う)。 / 2026-09-22 ★ReasonTextの反映漏れ2件を修正。indicator_1M_5側で新設・追加済みだった case 50(長期足 再エントリーロック,2026-09-10b導入だが反映漏れのまま放置されていた)・case 51(決済後同方向再エントリー禁止(5分間),2026-09-22新設)を追加。田島さんより「連続でエントリーしたが、間隔のルールはあるか」とのご指摘を受けてreason_20260922.csvを調査したところ、SELL→同一足内で平均足反転(reason30)決済→次の足でまた同方向のSELL、という決済を挟んだ連続エントリーが3回連続発生していたことが判明。既存の再エントリーロック(reason14/50)はいずれも「グレーに戻るまで」が条件のため対象外だった。indicator側にlastExitDir/lastExitTime(直近決済の方向・時刻)を新設し、同方向への再エントリーを決済から5分間(InpExitDirLockSec、既定300秒)禁止する安全網(reason51)をallowLogicCに追加(新規input InpUseExitDirLock)。取引ロジックの判定自体はindicator側のみで完結しており、本ファイル(EA)側はReasonTextのラベル追加のみ(reason CSV表示の反映漏れ修正)で、発注/決済ロジックへの変更は一切なし。 / 2026-09-18 ★バージョン4へ改名。田島さんご指示「バージョンを4にあげてもらえますか」により、ファイル名をDokaKotsu_EA_1M_3.mq5からDokaKotsu_EA_1M_5.mq5へ変更。参照先インジもDokaKotsu_indicator_1M_5へ改名されたためInpIndicatorNameを追従。ファイル名・#property version・EA_VERSION・起動時Print文を全て1M_5に統一。コード上のロジック自体の変更はなし(改名のみ)。 / 2026-09-16(3回目) ★FOMCのNY時間帯特例の再停止時刻を変更。InpFomcOpenEndHourJSTの既定値を24→23に変更(田島さんご要望「21時〜24時JSTを21時〜23時JSTに変更」)。これにより新規禁止が一時解除される時間帯は21:00〜23:00 JSTとなり、23:00からは(発表後の禁止が続くまで)新規禁止が再開する。InpFomcOpenStartHourJST(21時)・判定式(hNow>=Start && hNow<End)自体は変更なし、既定値のみの変更。 / 2026-09-16(2回目) ★小売売上高(Retail Sales)だけ新規禁止イベント予防線を解除できるようにした。田島さんご要望「小売売上高も解除してほしい」。新規input InpUseRetailStop(既定false=小売売上高は終日停止しない)を追加し、RefreshCalEvent()内でk==EV_RETAILの時だけthisBanを強制falseにする形で対応(InpUsePpiStop/PPIと全く同じ書き方)。ClassifyEvent()自体は小売売上高をこれまで通りEV_RETAILに分類したままなので、表示側DokaKotsu_US_Calendarや記録(evName等)には影響なし。他4指標(FOMC/CPI/NFP/ISM)の停止判定・停止時間帯計算には一切影響しない。 / 2026-09-16 ★段階決済(stagedMA)の「伸ばしモード(トレール未発動)」が持っていた独自のMA転換(31)/MAグレー(32)決済判定(buf25直読み+InpStagedGrayBars連続本数カウント)を撤去。田島さんより重ねてのご指摘(「MAグレー化決済をやめてほしいと何度も言っている」)を受けて調査したところ、通常モード(sExitでインジのrc読取)側は既にインジの判定に従っていたが、含み益が伸びてstagedMAに入った後の「伸ばしモード」だけはEAが自前でbuf25(背景方向)を読んで31/32を独自判定しており、「判定は全てインジ側に一元化する」という設計方針に反する形でMAグレー決済が生き残っていたことが判明。トレール発動後(g_trailArmed)と同じ「インジのreason30(平均足反転)のみで決済」に統一し、伸ばしモード側のReadBgDir/g_stagedGrayRun/InpStagedGrayBars依存を排除。これによりindicator_1M_5側の平均足前後平滑化(25/25)が、含み益の大小によらず常に唯一の決済判定として機能するようになる。 / 2026-09-15 ★ファイル名をDokaKotsu_EA_M1_2.mq5からDokaKotsu_EA_1M_5.mq5へ変更。参照先インジがDokaKotsu_indicator_1M_2→_1M_5へ改名され、決済用平均足(HA)の前後平滑化がInpHaPrePeriod/InpHaPostPeriod共に1→25に変更されたことに伴う対応。InpIndicatorName・#property version(1M5.00)・EA_VERSION(v1M5.0)・起動時Print文を1M_5に統一。indicator_1M_5側の決済用平均足の平滑化期間変更は、EAが読み取るバッファの意味・reasonコードの体系(reason30-34等)を変更するものではないため、EA側のロジック・ReasonText・reason CSV列構成への追加対応は不要。参照先名の変更のみ。 / 2026-09-10 ★PPI(生産者物価指数)だけ新規禁止イベント予防線を解除できるようにした。田島さんご要望「PPIで停止しているが、停止しないようにしたい」。新規input InpUsePpiStop(既定false=PPIは終日停止しない)を追加し、RefreshCalEvent()内でk==EV_PPIの時だけthisBanを強制falseにする形で対応(FOMCのNY時間帯解除(InpUseFomcNyWindow)と全く同じ書き方)。ClassifyEvent()自体はPPIをこれまで通りEV_PPIに分類したままなので、表示側DokaKotsu_US_Calendarや記録(evName等)には影響なし。他5指標(FOMC/CPI/NFP/ISM/RETAIL)の停止判定・停止時間帯計算には一切影響しない。 / 2026-09-03 ★ファイル名をDokaKotsu_EA_M1_1.mq5からDokaKotsu_EA_1M_5.mq5へ変更。参照先インジがDokaKotsu_indicator_1M_1→_1M_2へ改名されたことに伴う対応(田島さんご要望「インジ側とEA側のバージョン番号を常に一致させる」)。InpIndicatorName・#property version(1M2.00)・EA_VERSION(v1M5.0)・起動時Print文を1M_2に統一。indicator_1M_5側で行われたM15フィルター・スパイク面積閾値・ADX関連の調整、決済用平均足の平滑化期間変更(前8/後10)等は、いずれもEAが読み取るバッファの意味・reasonコードの体系を変更するものではないため、EA側のロジック・ReasonText・reason CSV列構成への追加対応は不要。参照先名の変更のみ。 / 2026-08-27(6回目) ★1分足専用の新規分岐版(DokaKotsu_EA_M1_1)。DokaKotsu_EA_18.mq5(v18.04)から派生。参照先インジをDokaKotsu_indicator_1M_1へ変更。EA_VERSIONを\\\"vM1.1.0\\\"に変更(5分足版v18.0系とは別系統と分かるように)。ATR記録(iATR PERIOD_M5固定)は変更なし=indicator_1M_1側の平均足M5固定化と一貫性を保っている。田島さんご要望「5分から1分にする、平均足だけは5分のまま」を受けて、5分足版と1分足版の成績を見比べる検証用に新規作成。 / 2026-08-27(5回目) ★reason CSVの旧fast_spike_range/fast_spike_thresh列(高速版廃止分)を、新しいMinor/Majorスパイク方式の実測値・閾値(minor_spike_height/minor_spike_thresh/major_spike_height/major_spike_thresh、indicator buf64/69/68/70)に置き換え。田島さんご要望「エントリーリーズンでこの値がわかるように」を受けての対応。判定にはこれらの列自体は使わない・記録専用。 / 2026-08-27(3回目) ★田島さんご指摘により発覚: reason CSVの列一覧コメントが、WriteReasonRow()関数冒頭とファイル冒頭付近(旧ヘッダー部)の2箇所に存在しており、ファイル冒頭側は2026-07-21で更新が止まったまま(以後追加されたspike_area_last/wma_slope_dist/dbg_*/fast_spike_*等が反映されず)放置されていた。「一か所で管理する」方針に反していたため、ファイル冒頭側の列一覧は削除しWriteReasonRow()側への誘導コメントに置き換え、以後は列一覧の管理場所をWriteReasonRow()1箇所に統一。取引ロジックへの影響なし・コメント整理のみ。 / 2026-08-27(2回目) ★reason CSVにdbg_last_entry_dir/dbg_bars_since_entry/dbg_ha_runs_since_entry/fast_spike_range/fast_spike_thresh列(indicator buf65-69)を追加。田島さん報告(18:35のreason48が閾値未満に見えるのに発動/19:00にreason45・47がどちらも発動しなかった)の原因調査用。判定にはこれらの列自体は使わない・記録専用。WriteReasonRow()内の全列一覧コメントも合わせて更新。 / 2026-08-27 ★reason CSVにwma_slope_dist列(indicator buf45、ベースWMAの閾値距離)を追加。田島さん報告(23:45時点でチャート上は下降に見えたのにWMAがまだグレー扱いだった)を受けて、あと僅かで色が付く/まだ全然閾値に届いていない、を数値で確認できるようにした。判定にはこの列自体は使わない・記録専用。あわせて、WriteReasonRow()内にreason CSVの全列一覧コメント(唯一の管理場所)を新設。以後この関数(ヘッダー行・値書き込み行・一覧コメントの3箇所)だけを見ればreason CSVの構成が把握できるようにした(田島さんご要望「列を追加しても後で何だったか分からなくならないよう、これだけで管理したい」への対応)。 / 2026-08-26(2回目) ★田島さんご要望「今後はインジ側とEA側のバージョン番号を常に一致させる」を受けて、ファイル名をDokaKotsu_EA_17→_18へ変更(インジ側_18と揃える)。あわせて長年ズレたままだったEA_VERSION(\\\"v15.0\\\"のまま6バージョン分放置されていた)を\\\"v18.0\\\"に修正、さらに起動時Print文が6バージョン前のまま(\\\"DokaKotsu_EA_12 build:v12.0-0706 起動(indicator_12リンク更新)\\\")残っていた古いコードも発見し\\\"DokaKotsu_EA_M1_1 build:v18.0 起動(indicator_18リンク更新)\\\"に修正。いずれも表示・ログ文字列のみの修正で取引ロジックへの影響なし。 / 2026-08-26 ★参照先インジをDokaKotsu_indicator_17→_18に変更(高速スパイク検出追加に伴う)。ReasonTextにcase 48=\\\"高速スパイク決済(1本判定)\\\"(2026-08-26にindicator_18側で新規追加。スイング確定を待つ既存reason33とは別ラベル)を追加。取引ロジックへの影響なし・参照先名/reason CSV表示ラベルの追加のみ。 / 2026-08-25 ★2点対応。①reason CSVにspike_area_last列(indicator buf42、保持型スパイク面積)を追加。従来は単発パルスのbuf41しか記録しておらず、田島さん報告「スパイクに気づくまでに15分かかった」原因になっていた。保持型なら次のスパイクまで全行に値が残るため、エントリーした瞬間の行を見ればスパイクの有無に一目で気づける(判定ロジックには使わない記録専用)。②ReasonTextの反映漏れ2件を追加修正: case 46=\\\"MACD免除エントリー(VolScoreグレー免除)\\\"(2026-08-22にindicator側で追加済みだった分の反映漏れ)、case 47=\\\"平均足内2回目エントリー禁止\\\"(2026-08-25にindicator側で新規追加。HAの色が変わらない間は1回しかエントリーしない安全網)を追加。取引ロジックへの影響なし・reason CSV表示ラベルの修正/列追加のみ。 / 2026-08-21(2回目) ★FOMCのみ、NY時間帯(21時〜24時JST)は新規禁止を一時解除するよう変更。新規input InpUseFomcNyWindow(既定true)・InpFomcOpenStartHourJST(既定21)・InpFomcOpenEndHourJST(既定24)を追加。開始時刻(InpEvStopHourJST=14時)・発表後の再停止(postEnd)ロジックは変更なし。FOMC以外(CPI/NFP/ISM/PPI/小売売上高)の挙動も一切変更なし。田島さんご要望「開始はそのまま/21時に復活/24時から再停止」を受けての対応。 / 2026-08-21 ★ReasonTextの反映漏れ2件を修正(indicator_17側で追加済みだったreason44/45がEA側に未登録のまま「(未評価)」表示になっていた)。case 44=\"MACD免除エントリー(タイミングずれ免除)\"(2026-08-16にindicator側で追加済みだった分の反映漏れ)、case 45=\"同方向連続エントリー禁止\"(2026-08-21にindicator側で新規追加。決済を経ずに直近と同方向へ短時間で連続エントリーする事故を防ぐ安全網)を追加。取引ロジックへの影響なし・reason CSV表示ラベルの修正のみ。田島さん報告(2026-08-21 10:35 BUY→10:45 BUYと決済を挟まず同方向へ連続エントリーした事例)を受けての対応。 / 2026-08-14(2回目) EA_17 / 16→17へバージョンアップ。参照先インジをDokaKotsu_indicator_16→_17に変更(スパイク面積閾値InpSpikeAreaThreshの既定値300→1000への変更に伴う)。この閾値はインジ側の単一入力値でreason33/34・reason39・マーケットステイトSP判定の3箇所に共通で使われている値のため、EA側はreason CSV/entry・result snapshotの値がそのまま1000基準に変わるだけで、EA自体のロジック・ファイル名以外のコード変更は無し。ファイル名/#property version/InpIndicatorNameを16→17へ統一。 / 2026-08-14 EA_16d / ★【重大】トレーリング発動(InpTrailGiveback)がSLを一切張らない不具合を修正。従来はg_peakPipMFE(ピーク含み益)からInpTrailGiveback(既定25%)吐き出した瞬間にg_trailArmedをtrueにし『平均足決済モードへ切替』するだけで、その後は平均足反転(reason30)が出るまで指標のシグナル待ちのみだった(価格ベースのSLは一切変更していなかった)。実例2026-08-14 09:30 SELLエントリー、09:45にMFE到達→トレーリング発動(ea_note記録)、しかし平均足反転がラグったため09:57まで含み益が65.2pip→0(建値)まで無制限に溶けた。対策: g_trailArmedがtrueになった瞬間、ArmTrailStopSL()を新設して発動時点のギブバック水準(peakPipMFE*(1-InpTrailGiveback))を価格SLとして即座にPositionModifyで建てるよう変更(ManageBreakevenの段階建値と同じ『利側にしか動かさない』パターンを踏襲、既存の段階建値SLより不利な位置には絶対に置き換えない)。これにより平均足反転を待つ間も価格ベースの下限が機能し、無制限のギブバックを防ぐ。判定ロジック(エントリー/インジ側)には一切影響なし、EA側のリスク管理(SL)のみの変更。田島さんの実トレード分析(09:30 SELL、決済09:57:28、pips=0.00)がきっかけ。 / 2026-07-25 EA_16c / ★【重大】entry_*.jsonl/result_*.jsonlが排他ロックされ、read_ea_trades.py(Python)はもちろん、エクスプローラーでのコピーやメモ帳での閲覧まで「使用中」で弾かれる不具合を修正。2026-07-15dでファイルを開いたまま保持する方式(GetDailyFileHandle)に変えて以降、FileOpenの引数にFILE_SHARE_READが無く、EA稼働中は他プロセスから一切読めない排他ロックのままだった(田島さんが該当jsonlを開こうとして「使用中」エラーになった報告で発覚)。GetDailyFileHandleのFileOpen引数にFILE_SHARE_READを追加し、書き込みはEAが保持したまま、他プロセスからの読み取り(read_ea_trades.pyの自動取込含む)を常に許可するよう修正。reason_YYYYMMDD.csv(WriteReasonRow)は元々毎回開閉する方式のため対象外(今回のロック不具合は発生していない)。 / 2026-07-21 EA_16b / ★参照先インジをDokaKotsu_indicator_15→_16に変更(ボラティリティ(VolScore)最終ゲート追加に伴う対応)。indicator_16がエントリー判定の最終チェックとしてVolScore(EMA(High-Low,5)とEMA(それ,20)の乖離率%)を追加し、InpVolScoreLowPct(既定0%)未満をグレー(ボラ不足)としてreason43でブロックするようになったため、EA側は①ReasonTextにcase 43を追加、②reason CSVの列構成末尾にvolscore(buf61の値をそのまま記録、判定には未使用の記録専用)を追加、の2点で追随した。判定ロジック自体はこれまで通りindicator側に一元化されたまま、EA側の発注ロジックへの変更はなし。 / 2026-07-20 EA_16 / ★DokaKotsu_Dashboard.mq5の■(停止)ボタン挙動を変更: 従来は新規禁止のみだったが、保有中に押された場合はその場で保有を強制決済してから停止するよう変更(田島さん要望)。保有していなければ従来通り新規禁止のみ。OnTick内でinWeekendFlatブロックの直後にdashPause&&pos!=0の分岐を追加し、CommandExit(5,\\\"ダッシュボード停止\\\")→ForceCloseMyPositions経由で他の強制決済(緊急逆行/イベント/週末)と全く同じ再送の仕組みに乗せた。g_lastExitMethod=55(ExitGroup範囲を50-54→50-55へ拡張)・g_exitKind=5を新設。判定(押す/押さないの意思決定)はダッシュボード側のボタン、実行(決済発注)はEA側という役割分担はこれまで通り変更なし。 / 2026-07-16 EA_15b / ★小売売上高(Retail Sales)をイベント予防線の対象に追加(EV_RETAIL新設)。他5指標(FOMC/CPI/NFP/ISM/PPI)と全く同じ扱い=RefreshCalEvent()は指標ごとに個別ロジックを持たず、分類さえされれば共通のInpEvStopHourJST(既定14時JST)起点・InpEvAfterHours時間後までのルールが自動的に適用されるため、ClassifyEvent()への追加だけで済んだ。DK_StopReasonCode=14、evName=\"小売売上高発表前停止\"。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにRETAILを追加。 / 2026-07-15h EA_15 / ★14→15へバージョンアップ。エントリーリーズンの修正2点に対応: ①WMA/M15タイミングずれの見送り確定(reason41,InpWmaM15MaxBars既定3=15分)。WMAが点灯してから既定3本以内にM15が追いつかなければ、以後M15が追いついてもそのWMA継続中は見送り確定(田島さん整理: 15分側が遅れる=波が速い=15分足で見ると終盤でリスクが高いため)。②BB×KC(regimeSqueeze)条件をロジックCに追加(reason42)。まだスクイーズ中(未ブレイク)ならWMA/M15/長期足が揃っていても見送り。参照先インジをDokaKotsu_indicator_15に変更、ReasonTextにreason41/42を追加。 / 2026-07-15g EA_14h / ★DokaKotsu_Dashboard.mq5の■(取引停止)/▶(復活)ボタンと連動。IsDashboardPaused()新設(GlobalVariable DK_DASH_TRADEPAUSE_<magic>を参照)。新規エントリーの統合判定・停止理由テキスト・DK_StopReasonCode(新規コード13)に組み込み。保有中ポジションはこのボタンでは決済されない(新規停止/再開のみ)。 / 2026-07-15f EA_14g / ★exit_groupに\"RISK\"(EA側リスク管理の強制決済)を追加し、5パターンに新しいexit_method番号(50=緊急逆行/51=イベント決済/52=週末強制/53=ウォッチドッグ)を割り当て。従来この5パターンはg_lastExitMethodを更新しないか(緊急逆行/イベント/週末)、reason33(スパイク面積決済)と同じ33を使っていた(ウォッチドッグ)ため、exit_groupが実態と異なる分類(直前の値の使い回し、またはSPIKEへの誤分類)になるバグがあった。ウォッチドッグは53に変更し衝突を解消。なおSL(ブローカー側の逆指値直接約定)はOnTradeTransaction未実装のため、現状result_snapshot自体が記録されない既知の課題として残る(54を予約済み・別途対応予定)。 / 2026-07-15e EA_14f / ★イベント新規禁止ロジックを全面刷新。従来の「指標ごとに発表hb時間前から」(CPI/NFP/ISM/PPI=3h、FOMC=10h)+リーク時間帯(発表30分前は新規OK)+発表1分前の建値移動(スパイク保険)という仕組みを廃止し、対象5指標(FOMC/CPI/NFP/ISM/PPI)すべて共通で「発表当日のJST14時(InpEvStopHourJST)から新規禁止、発表からInpEvAfterHours(既定1)時間後まで継続」というシンプルな方式に変更(米国休日停止と同じ考え方に統一)。発表が0時〜14時未満(FOMC等の深夜発表)の場合は前日14時が起点になるよう計算。InpFomcHoursBefore/InpCpiNfpHoursBefore/InpEvLeakMin/InpEvAfterMin/InpEvBeMinBefore・g_evNeedBE・ForceEventBreakeven()は削除。g_evStateは0/1のみ(リーク状態=2は廃止)。 / 2026-07-15d EA_14e / ★【重大】entry/result JSONLが書込のたびに既存内容ごと消えるバグを修正。田島さんの環境で実際に確認(05:40の記録がファイルに残ったまま11:40に新規書込したところ、05:40分が消えて11:40分だけの1行になった=ファイルサイズが1行分のまま)。原因はMQL5のFileOpen(FILE_READ|FILE_WRITE)+FileSeek(SEEK_END)方式が、ドキュメント上は追記できるはずが実際には信頼できないという既知の問題(同様の報告がMQL5フォーラムに多数あり)。対策として、ファイルを都度開閉せずEA稼働中は開いたまま保持し(GetDailyFileHandle新設,g_entryFileHandle/g_resultFileHandle)、日付が変わった時だけ閉じて次の日のファイルを新規に開く方式へ変更。OnDeinitでハンドルを確実にクローズ。 / 2026-07-15c EA_14d / ★entry_*.jsonl/result_*.jsonlの文字コードバグを修正。コードページ未指定のFileOpenだとシステムANSI(日本語WindowsはCP932)で書かれてしまい、Python側(json.load時UTF-8前提)でexit_why等の日本語項目が文字化けしていた(数値項目には影響なし)。mt5_calendar_today.json(2026-07-08)で使ったCP_UTF8明示の書き方に統一して解消。実データ(result_20260715.jsonl)の生バイトでCP932混入を確認済み。 / 2026-07-15b EA_14c / ★決済理由の3分類(exit_group)を追加。田島さんとの会話で判明した誤解を訂正: reason34(ウェーブクロス救済)は独立した4つ目の決済理由ではなく、reason33(スパイク面積直接決済)が次の足で間に合わなかった時の保険であり、あくまで『スパイク決済』という1つの仕組みの一部。決済は本質的に平均足(30)/WMA(31,32)/スパイク(33,34)の3種類しかないという整理に基づき、ExitGroup()新設・result_snapshotにexit_group(\"HA\"/\"WMA\"/\"SPIKE\")を追加した。既存のexit_method(30-34の生番号)はそのまま残し、分類だけを別フィールドとして追加(記録専用・決済ロジックへの影響なし)。 / 2026-07-15 EA_14b / ★PPI(生産者物価指数)をイベント予防線の対象に追加(EV_PPI新設)。CPIと同じ扱い(発表前hbはInpCpiNfpHoursBeforeのまま自動適用、DK_StopReasonCode=12、evName=\"PPI発表前停止\")。対になるDokaKotsu_US_Calendar側もClassifyEvent/CategoryCodeにPPIを追加要(別途反映が必要)。 / 2026-07-13 パターンB対応: reason CSVにold_chain_reason列(indicator buf59)を追加、entry_snapshot(JSON)にもold_chain_reasonを追加。indicator_14がInpEntryModeBBKCOnly=trueの間、実際の発注はBB×KC(regime)+再エントリーロックのみで行われるが、この列で「もし従来の全フィルターのままだったらどう判定されたか(0=旧ロジックでも許可)」を確認できるようにした。EA自体の発注ロジック(buf7/8/9読取)は変更なし=判定は完全にindicator側に一元化されたまま。決済ロジックへの影響なし。 / 2026-07-12b EA_14 / ★13→14へバージョンアップ。reason CSV・entry_snapshot(JSON)にBB/KCレジーム(regime=indicator buf53,regime_ratio=indicator buf58・新規)を追加(判定ロジックへの影響なし・記録専用)。参照先インジをDokaKotsu_indicator_14に変更。 / 2026-07-10b EA_13h / ★indicator_13(2026-07-10e)の相場状態(buf57,SQ/TR/SP)対応。reason CSVのreason列先頭に状態接頭辞([SQ]/[TR]/[SP])を必ず付与するMarketStateText()を追加し、どのブロック理由がどの状態の中で起きたことかを一目で判別できるようにした(取引ロジックへの影響なし・記録専用)。 / 2026-07-10 EA_13g / ★indicator_13(2026-07-10)のレジーム判定(buf53,reason40)・スパイクADX禁止(buf50-52,reason39)・後段フィルター影判定(buf54-56)への対応。①entry_snapshotのjudgmentにspike_adx_ban_active/trigger_area/bars_since(buf50-52)・regime(buf53)・shadow_wave/adx/zz(buf54-56)を追加。②reason CSVにshadow_wave/adx/zz(buf54-56)の3列を追加=reason40等の上流ブロックでその足の実判定が隠れていても、Wave(26/27/28)・ADX継続性(29/36)・ZigZag(35)がその時点で通過/ブロックのどちらだったか常に記録できるようにした。③ReasonTextにreason39/40のケースを追加(未登録のため従来「(未評価)」表示になっていたバグを修正)。いずれも取引ロジックには一切影響しない記録専用。 / 2026-07-09e EA_13f / ★「勘に頼らない敗因分析」残項目を一括追加。judgment: cooldown_left(buf44)/wma_slope_dist(buf45)/long_slope_smoothed・long_slope_dist(buf46/47)。context: wave_fast_raw・wave_slow_raw(buf48/49)、day_of_week・hour_jst(JST基準)、mins_to_next_event・mins_since_last_event(CalendarValueHistoryを直接照会、DokaKotsu_US_CalendarのJSONには依存しない独立取得)。GetNewsMinutes()新設。判定ロジックへの影響なし。 / 2026-07-09d EA_13e / ★entry_snapshotのjudgmentにspike_area_last(buf42)/spike_bars_since(buf43)を追加。spike_area(buf41)は確定した1本の足でしか値が立たない単発パルスのため、エントリーとほぼ噛み合わず相関が見えなかった。保持型の値と経過本数を追加し「何本前にどれくらいのスパイクがあったか」を分析できるようにした(判定ロジックへの影響なし)。 / 2026-07-09c EA_13d / ★entry_snapshotのjudgmentにspike_area(buf41)を追加。exit側resultには既にspike_areaがあり非対称だったため、エントリー直前のスパイク局面も記録できるようにした(判定ロジックへの影響なし・記録項目の追加のみ)。 / 2026-07-09b EA_13c / ★スパイク(33)・ウェーブクロス救済(34)を段階決済/トレーリング中でも常に最優先で即決済するよう修正。従来は段階決済モード(stagedMA)に入ると、その中の平均足反転/MA転換/MAグレー判定しか見ておらず、インジ側がスパイクを検知していても無視されていた(=「最優先」という設計意図とEAの実装がズレていた)。EXIT分岐の一番先頭でrc==33/34を早期リターンする形にして解消。300以上の面積はほとんど出現しない前提のため、各モードとの共存ロジックは作らず単純な最優先分岐にしている。 / 2026-07-09 EA_13b / ★スパイク決済(indicator_13が2026-07-08導入)のラベル漏れを修正: 通常モードEXIT分岐がrc==33(スパイク面積)/34(ウェーブクロス救済)を認識せず「決済(✖)」+g_lastExitMethod=30に誤ラベルしていたのを解消(実際の決済注文自体は変更なし、記録の正確性のみ修正)。result_snapshotに exit_method(30-34の実際の決済方式)と spike_area(indicator buf41、スイング確定時の面積実測値。閾値300未達の不発分も含む)を追加。 / 2026-07-07 EA_13 / ★entry/result JSONスナップショット追加(InpLogSnapshot,既定true)。参照先=DokaKotsu_indicator_13。エントリー成功時にjudgment(判定に使った値)+context(indicator buf28-40の未使用ロジック探索用データ)をentry_<magic>_<time>.jsonへ、決済成立時にresult(pips/勝敗/保有時間/MFE/MAE/RR実績)をresult_YYYYMMDD.jsonlへ1行追記。いずれも取引ロジックには一切影響しない記録専用(WriteEntrySnapshot/WriteResultSnapshot,保存先=InpReasonDir配下)。MAE追跡をUpdateMFEに追加(g_peakPipMAE)。 / 2026-07-06 EA_12 / ★米国休日バグ修正: 週末(土/日)付けの祝日エントリーをRefreshUSHolidayでスキップするよう変更(day_of_week==0/6を無視)。実例2026-07-06:独立記念日が金曜(観測日)と土曜(実日付)の重複登録で、土曜側がJST変換後に翌週月曜と誤一致し平日なのに米国休日停止が誤発動していた問題に対応。スキップ発生時は1回だけPrintで確認ログ出力 / 参照先=DokaKotsu_indicator_12 / 理由テキストにreason29(ADXグレー,indicator_11で導入済みだったが漏れていた分)・35(ZigZag弱波)・36(ADX継続未達)を追加 / CSVにadx(buf26)・zigzag(buf27)列を追加 / ★イベント予防線にISM追加(EV_ISM,ClassifyEvent/DK_StopReasonCode=11)。重要度フィルターをHIGHのみ→MODERATE+に緩和(表示側DokaKotsu_US_Calendarと統一。ISMはMODERATE分類のため従来HIGHのみでは検出不可だった)。時間窓はInpCpiNfpHoursBeforeを流用。判定ロジックはインジ側のまま変更なし / 2026-06-20 EA_9 / 参照先=DokaKotsu_indicator_9(Ver8.0) / MT5カレンダー(CPI/NFP/FOMC)+米国休日+年末年始 / 停止理由GV出力 / M15状態(buf13)読取+リーズンに15分足列 / 連敗ロット+自動復活 / ドテン廃止 / 2026-06-22:日次pip停止(InpMaxDayLossPip)+復活で基準リセット+チャート3行警告 / 2026-06-22:平均足色列(buf14)+決済理由細分化(30/31/32)+出来高(21) / 2026-06-23:損切り再決済(✖再送+広スリッページ)+緊急逆行ストップ(任意・既定OFF)+救済GV(Watchdog表示) / 2026-06-23:段階決済(含み益トリガーで平均足→MA切替)+15分グレー予備決済 / 2026-06-24:v8.3 インジ長期足(MTF3本パーフェクトオーダー門番,reason22)対応・理由テキスト追加 / 2026-06-24:v9.0 ファイル名/版を8→9統一(インジと同番号)・参照先=DokaKotsu_indicator_9・案Aで15分グレー予備決済OFF(InpExitOnM15Gray=false)・CSVに長期足状態列(buf15読取)追加 / 2026-06-28:EA_10 参照先=DokaKotsu_indicator_10・理由テキストに24/25/26を追加(24=フラッシュ回避,25=長期が後発,26=Wave未反転)。判定はインジ側のまま(EAは実行+リスク管理+決済再送)。#property versionを10.00に整合 / 2026-06-30:段階決済をbuf25(背景方向)自力判断に改良(反転=31/グレー連続InpStagedGrayBars=32。インジ理由32待ちの詰まりを解消)・ウォッチドッグ決済指示GV(DK_WD_EXITREQ)受信→即決済+再送(手法33)・自動売買/連携状態GV(DK_EA_TRADEOK/LINKOK)出力・決済手法をCSVリーズン末尾に保持表示(30平均足/31MA転換/32MAグレー/33WD,次エントリーまで) / 2026-07-01:再突入抑制(2発目キラー)=21時前(NY時間外,夏21/冬22)にMAグレー決済したら同方向を背景(確定足)再点灯InpRelightBars本までロック・NY時間は無効/解除・CSVリーズン末尾にATR(14)pipを全行記録(ボラ実証データ用) / 2026-07-02:トレーリングストップ=段階決済(含み益100pip超)中にピーク利益(MFE)のInpTrailGiveback(25%)を吐き出したら発動し平均足決済モードへ切替(平均足反転30で決済=決済(平均足反転/TS))。ea_note列に トレーリングストップ発動/決済OK(平均足反転/TS) を記録 / 2026-07-03:米国休日判定をチャート表示側(DokaKotsu_US_Calendar.mq5)と連携。RefreshUSHolidayが本日分(時刻問わず)の祝日検出+開始/終了時刻をGV出力(DK_EA_USHOL_ACTIVE/TODAY/START/END_<magic>)。表示側はDK_EA_HB心拍の鮮度でEA生存を確認しGV値をそのまま表示=WYSIWYG / 2026-07-03:InpUSHolStopHourJST既定値を18→14に変更(米国休日の新規停止開始をJST14時からに前倒し) / 2026-07-06:EA_11 インジ名称変更(DokaKotsu_indicator_10→DokaKotsu_indicator_11)に伴いEA側の参照名・ファイル名・バージョン表記を11に統一整合(判定ロジックはインジ側のまま変更なし)"
 #define RESUME_BTN  "DK_ResumeBtn"   // ★連敗手動復活ボタンのオブジェクト名
 #define RESUME_TXT  "DK_ResumeTxt"   // ★状態テキスト(警告/停止中)のオブジェクト名
 #define WARN_TXT2   "DK_WarnTxt2"    // ★2026-06-22 3行警告の2行目(連敗)
@@ -577,10 +668,23 @@ input double InpBE2offsetPips  = 20.0; // 2段目:この分(pip)を利側にロ�
 //--- ★2026-10-28追加: ゆっくりトレーリング。1段目(InpBEtriggerPips)に届いたあと、含み益(MFE)が伸びた分の一部だけSLを引き上げ続ける。
 //    SLの利側ロック = InpBEoffsetPips + (MFE - InpBEtriggerPips) × InpSlowTrailRatio。段階建値の各段と比べて有利なほうを採る(SLは利側にしか動かさない)。
 //    例(1段目80・比率0.30): MFE100→+6 / 150→+21 / 200→+36 / 300→+66pip。比率が小さいほど「ゆっくり」で、大きな波を残しやすい。
+//    ★2026-11-13(3回目): 比率を3段に(下の InpSlowTrailRatio / Ratio2 / Ratio3)。MFE100→+10 / 200→+70 / 300→+147.5 / 500→+317.5pip。
 input bool   InpUseSlowTrail      = true;  // ゆっくりトレーリングを使うか(falseで従来の段階建値だけ)
-input double InpSlowTrailRatio    = 0.30;  // MFEが1段目を超えて伸びた分の何割をロックに加えるか(0.30=30%)
+input double InpSlowTrailRatio    = 0.50;  // 【1段目の比率】MFEが1段目(InpBEtriggerPips)を超えて、次の段(InpSlowTrailStage2Pips)までの伸びの何割をロックに加えるか(0.50=50%)。★2026-11-13(3回目): 0.40→0.50(旧:0.30→0.40。田島さんご要望「100pipで+10」)
+input double InpSlowTrailStage2Pips= 150.0; // ★2026-11-13(3回目)追加【2段目の開始】MFEがこのpipを超えた分から、比率を InpSlowTrailRatio2 に上げる(利益が大きいほど、ロックを加速)
+input double InpSlowTrailRatio2   = 0.70;  // ★2026-11-13(3回目)追加【2段目の比率】InpSlowTrailStage2Pips〜InpSlowTrailStage3Pips の伸びに掛ける(0.70=70%)
+input double InpSlowTrailStage3Pips= 250.0; // ★2026-11-13(3回目)追加【3段目の開始】MFEがこのpipを超えた分から、比率を InpSlowTrailRatio3 に上げる
+input double InpSlowTrailRatio3   = 0.85;  // ★2026-11-13(3回目)追加【3段目の比率】InpSlowTrailStage3Pips を超えた伸びに掛ける(0.85=85%)。ロック(利側SL) = InpBEoffsetPips + 各段の伸び×その段の比率の合計。例(強め): MFE100→+10 / 150→+35 / 200→+70 / 250→+105 / 300→+147.5 / 400→+232.5 / 500→+317.5pip
 input double InpSlowTrailGapPips  = 10.0;  // 現在の含み益からこの幅(pip)以上手前にしかSLを置かない(置くと即決済になるのを防ぐ)
-input double InpSlowTrailStepPips = 5.0;   // SLの更新は、いまのSLよりこのpip以上良くなる時だけ(ティックごとの修正連発を防ぐ)
+input double InpSlowTrailStepPips = 2.0;   // SLの更新は、いまのSLよりこのpip以上良くなる時だけ(ティックごとの修正連発を防ぐ)。★2026-11-13: 5→2に変更(旧:5。MFEが80〜97pipの間は、計算上のロックが5pip未満で、更新されず建値のままだったため)
+//--- ★2026-11-13追加: 発表前ロック(B2)。指標の発表のN分前から発表まで、含み益の一定割合にSLを追従させる(利益の側にしか動かさない)。
+//    11/13 22:30のPPIで、含み益+80pip(約$8)が、1分間の84pipの逆行で、建値のSL(+0.1pip)に当たって終わったため(田島さんご要望)。普段のトレールは変えない。
+//    対象: Calendarインジが出す7種(CPI/雇用統計/ISM/FOMC/PPI/小売売上高/PCE)。PPI・小売売上高は、新規停止がOFFでも、このロックは働く。
+input bool   InpUsePreEventLock     = true;  // 発表前ロックを使うか
+input int    InpPreEventLockMin     = 5;     // 発表のこの分前から発表まで追従
+input double InpPreEventLockRatio    = 0.50;  // 含み益のこの割合にSLを置く(0.50=50%)
+input double InpPreEventLockMinPips  = 20.0;  // 含み益がこのpip以上の時だけ働く
+input double InpPreEventLockStepPips = 3.0;   // SLの更新は、いまのSLよりこのpip以上良くなる時だけ(注文の連発防止)
 
 input int    InpMagic        = 20260606;// マジックナンバー(このEAの注文識別)
 input int    InpSlippage     = 20;     // 許容スリッページ(ポイント)
@@ -618,6 +722,7 @@ input bool   InpUsePceStop           = true;  // ★2026-10-28追加: PCE(個人
 
 //--- ★米国休日(MT5カレンダー)。JSTこの時刻〜翌オセアニア開放(InpResumeHourJST)まで新規停止。
 input bool   InpUseUSHoliday      = true; // ★米国休日停止を使うか(カレンダーの祝日を自動判定)
+input string InpUSHolExcludeKeys   = "Veterans;復員;退役;Columbus;コロンブス"; // ★2026-11-14: 米国休日の停止から外す祝日名(;区切り・部分一致)。退役軍人の日(復員軍人の日)等。空欄=除外なし
 input int    InpUSHolStopHourJST  = 14;   // 米国休日: JSTこの時刻から新規停止(開放は翌 InpResumeHourJST 時)
 
 //--- ★2026-09-22変更: 正月休み(固定: 12/31〜1/3)終日新規停止。カレンダー不使用・入力更新不要。
@@ -639,9 +744,9 @@ input double InpNyRangeStopPip = 1000.0; // ★2026-09-28追加: 上記の値幅
 input bool   InpUseHourSchedule = false;  // ★2026-10-26追加→2026-11-05: 旧「取引する時間帯」(許可する時のリスト方式)。名前つきの停止(下の「10時のみ」「日本市場午後」)に置き換えたため、既定はfalse。trueにすると、InpAllowHoursJSTに含まれない時も、追加で新規停止する(理由は「取引時間外(スケジュール)」)
 input bool   InpUseStopHour10   = true;   // ★2026-11-05追加: 「10時のみ取引停止」(田島さんご指示)。毎日、JST InpStopHour10JST時台(10:00〜10:59)は新規停止(保有中は決済しない)
 input int    InpStopHour10JST   = 10;     // ★2026-11-05追加: 上の停止の「時」(JST)
-input bool   InpUseJpPmStop     = true;   // ★2026-11-05追加: 「日本市場午後停止」(田島さんご指示)。毎日、JST InpJpPmStartHourJST時〜InpJpPmEndHourJST時の手前(13:00〜18:59)は新規停止
+input bool   InpUseJpPmStop     = true;   // ★2026-11-05追加: 「日本市場午後停止」(田島さんご指示)。毎日、JST InpJpPmStartHourJST時〜InpJpPmEndHourJST時の手前(13:00〜17:59)は新規停止
 input int    InpJpPmStartHourJST= 13;     // ★2026-11-05追加: 日本市場午後停止の開始(JST・時)
-input int    InpJpPmEndHourJST  = 19;     // ★2026-11-05追加: 日本市場午後停止の終了(JST・時。この時刻の手前まで=18:59まで)
+input int    InpJpPmEndHourJST  = 18;     // ★2026-11-05追加→2026-11-14: 19→18に変更(田島さんご指示)。日本市場午後停止の終了(JST・時。この時刻の手前まで=17:59まで)
 input string InpAllowHoursJST   = "9,11,12,19-23"; // ★2026-10-26追加: 新規エントリーを出してよい「時」(JST)。カンマ区切り、範囲は「19-23」。例=9時台・11〜12時台・19〜23時台だけ取引し、他は新規停止(保有中のポジションは決済しない)。日跨ぎは「22-2」のように書ける
 int g_schedMask = 0;   // ★2026-10-26: 許可する時のビット(bit h=1ならh時台は取引可)。0=無効。OnInitより前に宣言が必要なため入力欄の直後に置く
 input int    InpStopHourJST   = 4;     // 停止開始(JST・時)   既定 04:00
@@ -674,7 +779,7 @@ input int    InpFriBanJstHour = 2;     // ★新規停止の開始時刻(JST・�
 input int    InpFriBanJstMin  = 0;     // ★新規停止の開始時刻(JST・分)
 
 //--- インジ名(MQL5\Indicators\ 直下に置く場合はこの名前)
-input string InpIndicatorName = "DokaKotsu_indicator_1M_7"; // 読み込むインジ名 ★2026-10-30: indicator_1M_6→_1M_7への改名に伴い変更(EA側もインジと番号を一致させる方針)
+input string InpIndicatorName = "DokaKotsu_indicator_1M_18"; // 読み込むインジ名 ★2026-10-30: indicator_1M_6→_1M_7への改名に伴い変更(EA側もインジと番号を一致させる方針)
 input int    InpIndCalcBars    = 30000;  // ★2026-11-06追加: EAの裏のインジ(iCustom)の計算範囲(直近N本)。0=全期間(従来)。EAは直近の足しか見ないので、既定30000(約1か月分)で十分。毎ティックの全期間の再計算を避け、動きの鈍さ(処理遅れ)を減らす。インジの InpCalcBars を渡す(インジ側は、2番目の入力)
 input bool   InpLogSnapshot   = true;                     // ★entry/result JSONスナップショットを出力するか(取引には影響なし)
 input bool   InpLogDowRr = true;   // ★2026-11-02追加: Dokakotsu_Dow_Indicator(同じチャート)の「現在値から見たRR」と使ったラインを、エントリー記録(entry_*.jsonl の context=エントリーリーズン)へ残す。記録専用で発注には影響しない
@@ -684,6 +789,9 @@ input int    InpVstopStaleSec = 120;   // ★2026-11-03追加: DK_VSTOP_TS(生�
 //--- 理由ログ(診断用・取引に影響なし)
 input bool   InpLogReason  = true;                       // 理由をCSVに記録するか
 input string InpReasonDir   = "dokakotsu_entry_reason";  // 保存先サブフォルダ(MQL5\Files\配下)
+input bool   InpLogLongDiag     = true;   // ★2026-11-09追加: 長期足の診断ログ(long_YYYYMMDD.csv)を、理由CSVと同じフォルダへ、1分ごとに書く(記録のみ。判定は不変)。長期足の傾き・閾値との距離・長期MAの値を残し、「長期足の基準を変えたら何分早く入れるか」を、過去のログで確かめるため
+input int    InpLongBackfillBars= 4000;    // ★2026-11-09追加: EA起動後、裏のインジが計算を終えたら、直近N本分(M1で約3営業日)の長期足の値を long_backfill.csv に1回書き出す(0=しない)。ログが無い過去の分も、すぐ分析できる
+input bool   InpLogSpanDiag     = true;   // ★2026-11-13追加: 一目スパンの診断ログ(spanlog_YYYYMMDD.csv)を、1分ごとに書く(記録のみ。判定は不変)。表示されている雲のA・B、価格の位置(雲の上/中/下)、現行ルールと新ルール案の結果を残す。起動時に、直近InpLongBackfillBars本分を spanlog_backfill_日付.csv にも1回書き出す
 
 //=== 内部 =========================================================
 int       hInd     = INVALID_HANDLE;   // インジハンドル
@@ -692,6 +800,8 @@ bool      g_reasonFailPending  = false; // 理由CSV書込み失敗(OnTimerでDi
 datetime  g_lastReasonFailDisc = 0;     // 直近の理由失敗Discord送信(連投抑制)
 datetime  g_lastHbDisc         = 0;     // 直近の稼働ハートビートDiscord送信
 datetime  g_lastBarTime = 0;           // 最後に診断行を書いたM5足
+bool      g_longBackfillDone = false;   // ★2026-11-09: 長期足の診断(直近N本)を書き出し済みか(OnTimerより前に宣言)
+bool      g_spanBackfillDone = false;   // ★2026-11-13: 一目スパンの診断(直近N本)を書き出し済みか(OnTimerより前に宣言)
 datetime  g_lastSignalBar = 0;         // 最後に発注したM5足(同足二重発注防止)
 int       g_lastOrderErr = 0;          // 直近の発注エラー(理由CSV用)
 int       g_lossStreak   = 0;          // ★連敗回数(新足ごとに実履歴から再計算してキャッシュ)
@@ -755,7 +865,7 @@ int OnInit()
 
    // ★ビルド標識: 動いているのが新版か一目で分かるように(起動ログ+チャート左下ラベル)
    //   Comment()は左上固定でWatchdogと重なるため、位置指定できるOBJ_LABELを使う。
-   Print("==== DokaKotsu_EA_1M_7  build:v1M7.0  起動(indicator_1M_7リンク更新) ====");
+   Print("==== DokaKotsu_EA_1M_18  build:v1M18.0  起動(indicator_1M_18 リンク更新) ====");
    Comment("");   // 旧Comment(左上)が残っていれば消す
    if(ObjectFind(0, BUILD_LBL) < 0) ObjectCreate(0, BUILD_LBL, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, BUILD_LBL, OBJPROP_CORNER,     CORNER_LEFT_LOWER);  // 左下基準
@@ -799,6 +909,7 @@ int OnInit()
    UpdateResumeButton();             // ★復活ボタン初期表示(連敗3以上で出る)
    RefreshUSHoliday();                // ★2026-09-22追加: 起動直後の停止ルールJSONに米国休日情報を含めるため先に評価
    WriteStopRulesJson();              // ★2026-09-22追加: 起動時に停止ルールJSON(定義+現在状態)を書き出す
+   LifecycleStartNote();              // ★2026-11-11追加: 前回の生存確認・終了の理由と、停止していた時間を、理由CSVとJournalに残す
    return(INIT_SUCCEEDED);
 }
 
@@ -806,6 +917,11 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   // ★2026-11-11追加: 終了の時刻と理由を残す(次の起動で、停止の原因を見つけるため)
+   GlobalVariableSet(StringFormat("DK_EA_LASTSTOP_%d",  InpMagic), (double)TimeLocal());   // PCの時計
+   GlobalVariableSet(StringFormat("DK_EA_LASTSTOPR_%d", InpMagic), (double)reason);
+   Print("[EA] 終了 reason=", reason, "(", DeinitReasonText(reason), ")");
+   LogReason(ServerFromLocal(TimeLocal()), "EA終了(理由: " + DeinitReasonText(reason) + ")");
    // ★2026-09-07追加: 【重大】OnInit失敗(インジ読込失敗など)時、それ以前のセッションで
    //   書かれた古いDK_EA_HB_<magic>がGV上に残り続け、Watchdog/monitoringパネルが
    //   「EA稼働中」と誤表示する不具合を確認(実機で3回連続initializing failed→
@@ -1033,6 +1149,9 @@ void WriteLossStopFile()
 
 void OnTimer()
 {
+   GlobalVariableSet(StringFormat("DK_EA_LASTALIVE_%d", InpMagic), (double)TimeLocal());   // ★2026-11-11追加: 生存の時刻(PCの時計。止まっていた時間を、次の起動で測る)
+   if(!g_longBackfillDone) WriteLongBackfill();
+   if(!g_spanBackfillDone) WriteSpanBackfill();   // ★2026-11-13: 一目スパンの診断(直近N本)を、裏のインジの計算が終わったら1回書き出す   // ★2026-11-09: 長期足の診断(直近N本)を、裏のインジの計算が終わったら1回書き出す
    // ★損切り救済/長引き通知 → Discord(保留分。PostDiscordは無効時は何もしない)
    if(g_rescueDiscPending)
    {
@@ -1159,17 +1278,26 @@ bool ReadBuf(int bufIndex, int shift, double &valOut)
 //|   インジが更新していない(GVが古い/無い)時は入らない。            |
 //+------------------------------------------------------------------+
 datetime g_sigWarnTime = 0;   // 警告の出し過ぎ防止
+string   g_sigWhy      = "";  // ★2026-11-09追加: チャートの矢印を受け取れなかった(使えなかった)理由。理由CSVの見送り行に残す
+
+string DkJstHm(const datetime t)   // サーバー時間 → JSTの「時:分」
+{
+   int off = IsSummerTime(t) ? InpJstOffSummer : InpJstOffWinter;
+   return TimeToString(t + off * 3600, TIME_MINUTES);
+}
+
 void ReadChartArrowSignal(bool &buyOut, bool &sellOut)
 {
-   buyOut = false; sellOut = false;
+   buyOut = false; sellOut = false; g_sigWhy = "";
    long cid = ChartID();
    string gv   = StringFormat("DK_SIG_%I64d",    cid);
    string gvTs = StringFormat("DK_SIG_TS_%I64d", cid);
    if(!GlobalVariableCheck(gv) || !GlobalVariableCheck(gvTs))
    {
+      g_sigWhy = "チャートの矢印GVが無い(このチャートに本体インジが付いていない?)";
       if(TimeCurrent() - g_sigWarnTime > 600)
       {
-         Print("[EA] チャートの矢印GV(", gv, ")がありません。このチャートにDokaKotsu_indicator_1M_7をアタッチしてください(それまでエントリーしません)。");
+         Print("[EA] チャートの矢印GV(", gv, ")がありません。このチャートにDokaKotsu_indicator_1M_18をアタッチしてください(それまでエントリーしません)。");
          g_sigWarnTime = TimeCurrent();
       }
       return;
@@ -1177,17 +1305,27 @@ void ReadChartArrowSignal(bool &buyOut, bool &sellOut)
    double ts = GlobalVariableGet(gvTs);
    if(TimeCurrent() - (datetime)ts > InpSigStaleSec)
    {
+      g_sigWhy = StringFormat("チャートのインジの矢印GVが古い(%d秒前。上限%d秒。インジの計算が詰まっている?)", (int)(TimeCurrent() - (datetime)ts), InpSigStaleSec);
       if(TimeCurrent() - g_sigWarnTime > 600)
       {
-         Print("[EA] チャートのインジの矢印GVが", InpSigStaleSec, "秒以上更新されていません(インジ停止?)。エントリーを見送ります。");
+         {
+            int ageS = (int)(TimeCurrent() - (datetime)ts);
+            int offS = IsSummerTime((datetime)ts) ? InpJstOffSummer : InpJstOffWinter;
+            Print("[EA] チャートのインジの矢印GVが", InpSigStaleSec, "秒以上更新されていません(インジ停止?)。最後の更新: JST ",
+                  TimeToString((datetime)ts + offS * 3600, TIME_DATE|TIME_MINUTES), "(", ageS / 60, "分前)。チャートID=", cid, "。エントリーを見送ります。");   // ★2026-11-09: 最後の更新時刻・チャートIDを追加
+         }
          g_sigWarnTime = TimeCurrent();
       }
       return;
    }
    double sig = GlobalVariableGet(gv);
-   if(sig == 0.0) return;
+   if(sig == 0.0) { g_sigWhy = "チャートに矢印が出ていない(裏のインジと、チャートのインジの判定がずれている?)"; return; }
    datetime barT = (datetime)MathAbs(sig);
-   if(barT != iTime(_Symbol, _Period, 1)) return;   // 直前に確定した足の矢印だけが対象
+   if(barT != iTime(_Symbol, _Period, 1))   // 直前に確定した足の矢印だけが対象
+   {
+      g_sigWhy = StringFormat("チャートの矢印は別の足(矢印=%s・直前の足=%s。インジの更新が遅れている?)", DkJstHm(barT), DkJstHm((datetime)iTime(_Symbol, _Period, 1)));
+      return;
+   }
    if(sig > 0.0) buyOut = true; else sellOut = true;
 }
 
@@ -1696,6 +1834,18 @@ datetime g_usHolStart   = 0;
 datetime g_usHolEnd     = 0;
 datetime g_usHolLastCalc= 0;
 
+//--- ★2026-11-14追加: 停止対象から外す祝日名か(InpUSHolExcludeKeysのどれかを含めば除外)
+bool IsExcludedUSHolidayName(const string name)
+{
+   string keys[]; int n = StringSplit(InpUSHolExcludeKeys, ';', keys);
+   for(int k=0;k<n;k++)
+   {
+      string key = keys[k]; StringTrimLeft(key); StringTrimRight(key);
+      if(key!="" && StringFind(name, key) >= 0) return true;
+   }
+   return false;
+}
+
 void RefreshUSHoliday()
 {
    datetime now = TimeCurrent();
@@ -1721,6 +1871,7 @@ void RefreshUSHoliday()
             MqlCalendarEvent ev;
             if(!CalendarEventById(values[i].event_id, ev)) continue;
             if(ev.type != CALENDAR_TYPE_HOLIDAY) continue;   // 祝日のみ
+            if(IsExcludedUSHolidayName(ev.name)) continue;   // ★2026-11-14: 退役軍人の日等は停止対象外
             datetime holJst = values[i].time + off*3600;     // 祝日の日付(JST壁時計)
             MqlDateTime hd; TimeToStruct(holJst, hd);
 
@@ -1949,7 +2100,7 @@ string BuildStopRulesArray()
    items[n++] = StopRuleJsonItem(20, "10時のみ取引停止", InpUseStopHour10,
                    StringFormat("\"window_jst\":\"%02d:00-%02d:00\",\"daily\":true", InpStopHour10JST, (InpStopHour10JST + 1) % 24));   // 開始〜終了の手前(10:00〜10:59)
    items[n++] = StopRuleJsonItem(21, "日本市場午後停止", InpUseJpPmStop,
-                   StringFormat("\"window_jst\":\"%02d:00-%02d:00\",\"daily\":true", InpJpPmStartHourJST, InpJpPmEndHourJST % 24));   // 開始〜終了の手前(13:00〜18:59)
+                   StringFormat("\"window_jst\":\"%02d:00-%02d:00\",\"daily\":true", InpJpPmStartHourJST, InpJpPmEndHourJST % 24));   // 開始〜終了の手前(13:00〜17:59)
    items[n++] = StopRuleJsonItem(17, "取引時間外(旧スケジュール)", InpUseHourSchedule, StringFormat("\"allow_hours_jst\":\"%s\",\"daily\":true", InpAllowHoursJST));
    items[n++] = StopRuleJsonItem(16, "当日値幅超過(NY停止)", InpUseNyRangeStop, StringFormat("\"range_pip\":%.0f,\"window_jst\":\"NY(夏21/冬22時〜翌5時)\"", InpNyRangeStopPip));
    items[n++] = StopRuleJsonItem(15, "日本祝日", InpUseJPHoliday, "\"window_jst\":\"00:00-24:00\",\"source\":\"DokaKotsu_Calendar_v7(GetJPHolidayName)\"");
@@ -2017,6 +2168,116 @@ string StopReasonName(const int code)
    return "取引可";
 }
 
+//+------------------------------------------------------------------+
+//| ★2026-11-13追加: 利益を守るルール(SL引き上げ・利益ロック)のJSON。モニターの停止規則タブが読んで表示する。|
+//|   ルールの値は、すべて Input 値そのもの(EAが唯一の持ち主)。ロック表は、EAの計算式で作る(モニターは計算しない)。|
+//|   停止ルールJSONの "lock_rules" として、停止/解除と同じ周期(OnTimer)で書き直す。                         |
+//+------------------------------------------------------------------+
+string JN(const string k, const double v, const int d = 1) { return "\"" + k + "\":" + DoubleToString(v, d); }
+string JB(const string k, const bool v)                   { return "\"" + k + "\":" + (v ? "true" : "false"); }
+string JS(const string k, const string v)                 { return "\"" + k + "\":\"" + JsonEscape(v) + "\""; }
+
+string EvKindNameJa(const EV_KIND k)
+{
+   return (k == EV_CPI) ? "CPI" : (k == EV_NFP) ? "雇用統計" : (k == EV_ISM) ? "ISM" : (k == EV_FOMC) ? "FOMC"
+        : (k == EV_PPI) ? "PPI" : (k == EV_RETAIL) ? "小売売上高" : (k == EV_PCE) ? "PCE" : "指標";
+}
+
+// 最大含み益(MFE)が mfe の時の、SLのロック位置(pip)。ManageBreakevenと同じ選び方(段階建値とゆっくりトレールの、有利なほう)。
+double EffectiveLockPips(const double mfe)
+{
+   double lock = -1.0e9;
+   if(mfe >= InpBE2triggerPips)      lock = InpBE2offsetPips;
+   else if(mfe >= InpBEtriggerPips)  lock = InpBEoffsetPips;
+   if(InpUseSlowTrail && mfe >= InpBEtriggerPips)
+   {
+      double slow = SlowTrailLockPips(mfe);
+      if(slow > lock) lock = slow;
+   }
+   return lock;
+}
+
+// まだ発表されていない、いちばん近い指標(Calendarインジのgv)。alive=Calendarが生きているか
+bool NextEventForLock(datetime &tOut, EV_KIND &kOut, bool &alive)
+{
+   alive = false;
+   datetime now = TimeCurrent();
+   string tsNm = StringFormat("DK_CAL_EV_TS_%d", InpMagic);
+   if(!GlobalVariableCheck(tsNm)) return false;
+   if(now - (datetime)GlobalVariableGet(tsNm) > InpEvGvStaleSec) return false;
+   alive = true;
+   bool found = false;
+   for(int k = 1; k <= 7; k++)
+      for(int i = 0; i < 3; i++)
+      {
+         string nm = StringFormat("DK_CAL_EV_%d_%d_%d", k, i, InpMagic);
+         if(!GlobalVariableCheck(nm)) continue;
+         datetime t = (datetime)GlobalVariableGet(nm);
+         if(t <= 0 || t < now) continue;
+         if(!found || t < tOut) { tOut = t; kOut = (EV_KIND)k; found = true; }
+      }
+   return found;
+}
+
+string BuildLockRulesJson()
+{
+   string s = "{\r\n";
+   // 段階建値
+   s += "    \"ladder\": {" + JB("enabled", InpUseBreakeven) + "," + JN("stage1_pips", InpBEtriggerPips) + "," + JN("stage1_lock", InpBEoffsetPips)
+      + "," + JN("stage2_pips", InpBE2triggerPips) + "," + JN("stage2_lock", InpBE2offsetPips) + "},\r\n";
+   // ゆっくりトレール(3段)
+   double s1 = InpBEtriggerPips;
+   double s2 = MathMax(InpSlowTrailStage2Pips, s1);
+   double s3 = MathMax(InpSlowTrailStage3Pips, s2);
+   s += "    \"slow_trail\": {" + JB("enabled", InpUseBreakeven && InpUseSlowTrail) + "," + JN("start_pips", s1)
+      + ",\"tiers\":[{" + JN("from", s1) + "," + JN("ratio", InpSlowTrailRatio, 2) + "},{" + JN("from", s2) + "," + JN("ratio", InpSlowTrailRatio2, 2)
+      + "},{" + JN("from", s3) + "," + JN("ratio", InpSlowTrailRatio3, 2) + "}]," + JN("gap_pips", InpSlowTrailGapPips) + "," + JN("step_pips", InpSlowTrailStepPips) + "},\r\n";
+   // ロック表(最大含み益 → SLのロック位置)
+   double pts[9] = {90.0, 100.0, 120.0, 150.0, 200.0, 250.0, 300.0, 400.0, 500.0};
+   string tbl = "";
+   for(int q = 0; q < 9; q++)
+   {
+      double lk = EffectiveLockPips(pts[q]);
+      if(lk < -1.0e8) continue;
+      if(tbl != "") tbl += ",";
+      tbl += "{" + JN("mfe", pts[q], 0) + "," + JN("lock", lk, 1) + "}";
+   }
+   s += "    \"lock_table\": [" + tbl + "],\r\n";
+   // 発表前ロック
+   datetime evT = 0; EV_KIND evK = EV_NONE; bool alive = false;
+   bool hasEv = NextEventForLock(evT, evK, alive);
+   string nextEv = "null";
+   if(hasEv)
+   {
+      int off = IsSummerTime(evT) ? InpJstOffSummer : InpJstOffWinter;
+      nextEv = "{" + JS("name", EvKindNameJa(evK)) + "," + JS("time_jst", TimeToString(evT + off * 3600, TIME_DATE|TIME_MINUTES)) + ","
+             + JS("lock_start_jst", TimeToString(evT - (datetime)InpPreEventLockMin * 60 + off * 3600, TIME_DATE|TIME_MINUTES)) + "}";
+   }
+   s += "    \"pre_event_lock\": {" + JB("enabled", InpUsePreEventLock) + "," + JN("minutes", (double)InpPreEventLockMin, 0) + "," + JN("ratio", InpPreEventLockRatio, 2)
+      + "," + JN("min_pips", InpPreEventLockMinPips) + "," + JN("step_pips", InpPreEventLockStepPips) + "," + JB("calendar_alive", alive) + ",\"next_event\":" + nextEv + "},\r\n";
+   // トレーリング発動(ピークからの吐き出し)
+   s += "    \"giveback_trail\": {" + JB("enabled", InpUseStagedExit) + "," + JN("trigger_pips", InpStagedTrigPips) + "," + JN("giveback", InpTrailGiveback, 2) + "},\r\n";
+   // 保険SL・緊急ストップ
+   s += "    \"hard_sl\": {" + JB("enabled", InpUseSL) + "," + JN("pips", InpSLpips) + "},\r\n";
+   s += "    \"emergency_stop\": {" + JB("enabled", InpUseEmergencyStop) + "," + JN("pips", InpEmergencyPips) + "},\r\n";
+   // 保有中の状態(この更新時点)
+   string posJ = "{" + JB("open", false) + "}";
+   ulong tk = 0;
+   int pos = CurrentPos(tk);
+   if(pos != 0 && tk != 0 && PositionSelectByTicket(tk))
+   {
+      double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl    = PositionGetDouble(POSITION_SL);
+      double lockNow = (sl == 0.0) ? 0.0 : ((pos == 1) ? (sl - entry) / PIP : (entry - sl) / PIP);
+      posJ = "{" + JB("open", true) + "," + JS("dir", (pos == 1) ? "買い" : "売り") + "," + JN("entry", entry, _Digits) + "," + JN("sl", sl, _Digits)
+           + "," + JN("profit_pips", CurrentProfitPips(pos)) + "," + JN("peak_pips", g_peakPipMFE) + "," + JN("locked_pips", lockNow) + ",\"has_sl\":" + (sl == 0.0 ? "false" : "true")
+           + "," + JB("trail_armed", g_trailArmed) + "}";
+   }
+   s += "    \"position\": " + posJ + "\r\n";
+   s += "  }";
+   return s;
+}
+
 void WriteStopRulesJson()
 {
    string rulesBody = BuildStopRulesArray();
@@ -2036,7 +2297,8 @@ void WriteStopRulesJson()
 
    string json = "{\r\n"
                + "  \"rules\": [\r\n" + rulesBody + "\r\n  ],\r\n"
-               + "  \"current\": {\r\n" + current + "  }\r\n"
+               + "  \"current\": {\r\n" + current + "  },\r\n"
+               + "  \"lock_rules\": " + BuildLockRulesJson() + "\r\n"     // ★2026-11-13追加: 利益を守るルール(モニターの停止規則タブに表示)
                + "}\r\n";
 
    int h = FileOpen(STOPRULES_FILE, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON, 0, CP_UTF8);
@@ -2047,6 +2309,105 @@ void WriteStopRulesJson()
      }
    FileWriteString(h, json);
    FileClose(h);
+}
+
+//+------------------------------------------------------------------+
+//| ★2026-11-13追加: 発表前ロック(B2)                                       |
+//|   指標の発表の InpPreEventLockMin 分前〜発表まで、保有が含み益 InpPreEventLockMinPips |
+//|   以上なら、SLを「いまの含み益 × InpPreEventLockRatio」の位置に追従させる。            |
+//|   SLは利側にしか動かさず(ManageBreakevenと同じ)、すでにもっと良いSLがあれば動かさない。|
+//|   発表の時刻は、Calendarインジが出すGV(DK_CAL_EV_<種別>_<i>_<magic>。サーバー時間)を読む。|
+//|   Calendarが止まっている(GVが無い/古い)間は、働かない(Watchdogが「カレンダー連携切れ」を出す)。|
+//+------------------------------------------------------------------+
+bool PreEventWindow(datetime &evtOut, EV_KIND &kindOut)
+{
+   datetime now = TimeCurrent();
+   string tsNm = StringFormat("DK_CAL_EV_TS_%d", InpMagic);
+   if(!GlobalVariableCheck(tsNm)) return false;
+   if(now - (datetime)GlobalVariableGet(tsNm) > InpEvGvStaleSec) return false;
+   for(int k = 1; k <= 7; k++)
+      for(int i = 0; i < 3; i++)
+      {
+         string nm = StringFormat("DK_CAL_EV_%d_%d_%d", k, i, InpMagic);
+         if(!GlobalVariableCheck(nm)) continue;
+         datetime t = (datetime)GlobalVariableGet(nm);
+         if(t <= 0) continue;
+         if(now >= t - (datetime)InpPreEventLockMin * 60 && now <= t) { evtOut = t; kindOut = (EV_KIND)k; return true; }
+      }
+   return false;
+}
+
+void ManagePreEventLock()
+{
+   if(!InpUsePreEventLock) return;
+   ulong tk = 0;
+   int pos = CurrentPos(tk);
+   if(pos == 0 || tk == 0) return;
+   datetime evt = 0; EV_KIND ek = EV_NONE;
+   if(!PreEventWindow(evt, ek)) return;
+   if(!PositionSelectByTicket(tk)) return;
+
+   double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double curSL = PositionGetDouble(POSITION_SL);
+   double tp    = PositionGetDouble(POSITION_TP);
+   double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double profitPips = (pos == 1) ? (bid - entry) / PIP : (entry - ask) / PIP;
+   if(profitPips < InpPreEventLockMinPips) return;
+   double lockPips = profitPips * InpPreEventLockRatio;
+   if(lockPips <= 0.0) return;
+   if((profitPips - lockPips) < InpSlowTrailGapPips) return;   // 現在値に近すぎる位置には置かない(即決済・注文エラー防止)
+   double minUp = InpPreEventLockStepPips * PIP;
+
+   int off = IsSummerTime(evt) ? InpJstOffSummer : InpJstOffWinter;
+   string evName = (ek == EV_CPI) ? "CPI" : (ek == EV_NFP) ? "雇用統計" : (ek == EV_ISM) ? "ISM" : (ek == EV_FOMC) ? "FOMC"
+                 : (ek == EV_PPI) ? "PPI" : (ek == EV_RETAIL) ? "小売売上高" : (ek == EV_PCE) ? "PCE" : "指標";
+   string tag = StringFormat("発表前ロック(%s %s JST)", evName, TimeToString(evt + off * 3600, TIME_MINUTES));
+
+   if(pos == 1)   // 買い: SLは entry + lock。現在SLより上(利側)の時だけ引き上げ
+   {
+      double newSL = NormalizeDouble(entry + lockPips * PIP, _Digits);
+      if(curSL < newSL - minUp)
+      {
+         if(trade.PositionModify(tk, newSL, tp))
+         {
+            Print("[EA] ", tag, " 買い SL->", DoubleToString(newSL, _Digits), " (含み益 ", DoubleToString(profitPips, 1), "pip / ロック ", DoubleToString(lockPips, 1), "pip)");
+            LogReason((datetime)iTime(_Symbol, _Period, 0), tag + " SL->" + DoubleToString(newSL, _Digits) + " ロック" + DoubleToString(lockPips, 1) + "pip");
+         }
+         else Print("[EA] 発表前ロック失敗(買い) err=", GetLastError());
+      }
+   }
+   else           // 売り: SLは entry - lock。現在SLより下(利側)の時だけ引き下げ
+   {
+      double newSL = NormalizeDouble(entry - lockPips * PIP, _Digits);
+      if(curSL == 0.0 || curSL > newSL + minUp)
+      {
+         if(trade.PositionModify(tk, newSL, tp))
+         {
+            Print("[EA] ", tag, " 売り SL->", DoubleToString(newSL, _Digits), " (含み益 ", DoubleToString(profitPips, 1), "pip / ロック ", DoubleToString(lockPips, 1), "pip)");
+            LogReason((datetime)iTime(_Symbol, _Period, 0), tag + " SL->" + DoubleToString(newSL, _Digits) + " ロック" + DoubleToString(lockPips, 1) + "pip");
+         }
+         else Print("[EA] 発表前ロック失敗(売り) err=", GetLastError());
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| ★2026-11-13(3回目)追加: ゆっくりトレールのロック位置(pip)。利益が大きいほど、比率を3段で上げる。 |
+//|   ロック = InpBEoffsetPips + (1段目〜2段目の伸び)×InpSlowTrailRatio                           |
+//|                            + (2段目〜3段目の伸び)×InpSlowTrailRatio2 + (3段目以上の伸び)×InpSlowTrailRatio3 |
+//|   伸び = peak(最大含み益MFE) - InpBEtriggerPips。各段は、連続につながる(境目でSLが飛ばない)。     |
+//+------------------------------------------------------------------+
+double SlowTrailLockPips(const double peak)
+{
+   double s1 = InpBEtriggerPips;
+   double s2 = MathMax(InpSlowTrailStage2Pips, s1);   // 段の順序が逆でも壊れないように
+   double s3 = MathMax(InpSlowTrailStage3Pips, s2);
+   double lock = InpBEoffsetPips;
+   if(peak > s1) lock += (MathMin(peak, s2) - s1) * InpSlowTrailRatio;
+   if(peak > s2) lock += (MathMin(peak, s3) - s2) * InpSlowTrailRatio2;
+   if(peak > s3) lock += (peak - s3) * InpSlowTrailRatio3;
+   return lock;
 }
 
 //+------------------------------------------------------------------+
@@ -2080,7 +2441,7 @@ void ManageBreakeven()
       double peak = MathMax(g_peakPipMFE, profitPips);
       if(peak >= InpBEtriggerPips)
       {
-         double slow = InpBEoffsetPips + (peak - InpBEtriggerPips) * InpSlowTrailRatio;
+         double slow = SlowTrailLockPips(peak);   // ★2026-11-13(3回目): 3段で比率を上げる(旧: 1段・一定比率)
          // 現在の含み益より InpSlowTrailGapPips 以上手前にしか置かない(押し戻した時に即決済や注文エラーになるのを防ぐ)
          if(slow > lockPips && (profitPips - slow) >= InpSlowTrailGapPips) { lockPips = slow; fromSlow = true; }
       }
@@ -2620,6 +2981,7 @@ void OnTick()
 
    // 建値ストップは毎ティック監視(含み益を即守る)
    ManageBreakeven();
+   ManagePreEventLock();   // ★2026-11-13追加: 発表前ロック(発表のN分前から、含み益の一定割合にSLを追従)
 
    datetime curBar = (datetime)iTime(_Symbol, _Period, 0);
 
@@ -2879,12 +3241,25 @@ void OnTick()
                   : (inFriBan      ? "金曜停止"
                   : (inStop        ? "オセアニア市場停止"
                   : (inEvent       ? "イベント予防線" : "ノーポジ")))))))))))));
+      // ★2026-11-09追加: 裏のインジ(CSVのcode/dirの元)は直前の足でBUY/SELLを出したのに、EAがこの足の最初のティックで入らなかった時、
+      //   その理由(チャートの矢印の状態)を ea_note に「ノーポジ[この足の最初のティックでは入らず: ○○]」と残す。
+      //   (EAが入るのは、チャートの本体インジの矢印だけ。裏のインジの判定とずれると、CSVに理由が出ないため。足の途中で矢印が追いつけば、その後に入ることもある)
+      if(note == "ノーポジ" && (code == 1 || code == 2) && g_lastSignalBar != curBar)
+      {
+         string whoArrow = (code == 1) ? "BUY" : "SELL";
+         bool   chartHas = (code == 1) ? sBuy : sSell;
+         string why = !InpEntryFromChartArrow ? StringFormat("発注に至らず(order_err=%d)", g_lastOrderErr)
+                      : (chartHas ? StringFormat("チャートの矢印は有るが発注に至らず(order_err=%d。再突入抑制・連敗停止など)", g_lastOrderErr) : g_sigWhy);
+         note = "ノーポジ[この足の最初のティックでは入らず: 裏のインジは" + whoArrow + "発生 / " + why + "]";
+      }
       // ★停止理由をGVへ(Watchdog表示用)
       int rcode = DK_StopReasonCode(dayStop, lossStop, inWeekendFlat, inFriBan, usHol, yearEnd, inStop, dashPause, jpHoliday, nyRange, hourSched, inEvent);
       g_stopReason = rcode;
       GlobalVariableSet(StringFormat("DK_EA_STOPREASON_%d", InpMagic), (double)rcode);
       PublishStopCatGV(rcode, DK_StopCount(dayStop, lossStop, inWeekendFlat, inFriBan, usHol, yearEnd, inStop, dashPause, jpHoliday, nyRange, hourSched, inEvent));   // ★2026-11-04: 分類・重なり数(Watchdog表示用)
       WriteReasonRow(curBar, code, pos, 0, (int)(inStop||inEvent||calBan||usHol||yearEnd||jpHoliday||nyRange||hourSched||inFriBan||dashPause), note);
+      WriteLongDiagRow(curBar);   // ★2026-11-09: 長期足の診断ログ(記録のみ)
+      WriteSpanDiagRow(curBar);   // ★2026-11-13: 一目スパンの診断ログ(記録のみ)
    }
 }
 
@@ -3031,6 +3406,279 @@ string MarketStateText(int s)
 }
 
 //+------------------------------------------------------------------+
+//| ★2026-11-11追加: 起動・終了の記録(止まっていた理由を、あとから見つけるための「ブラックボックス」)。               |
+//|   終了(OnDeinit)で、時刻と理由をGV(DK_EA_LASTSTOP/LASTSTOPR)に残し、理由CSVとJournalに「EA終了(理由)」を書く。       |
+//|   動いている間は、OnTimerごとに、生存の時刻をGV(DK_EA_LASTALIVE)に更新する。                                        |
+//|   起動(OnInit)で、前回の生存確認・終了の時刻と理由を読み、停止していた時間を、理由CSVとJournalに「EA起動(…)」と書く。|
+//|   PCのスリープ・強制終了・停電などで、終了の記録が残らなかった時は、その旨と、最後の生存確認からの空白の長さが出る。  |
+//+------------------------------------------------------------------+
+string DeinitReasonText(const int r)
+{
+   switch(r)
+   {
+      case 0: return "プログラム自身の終了";
+      case 1: return "チャートからEAを削除";
+      case 2: return "再コンパイル";
+      case 3: return "銘柄・時間足の変更";
+      case 4: return "チャートを閉じた";
+      case 5: return "入力パラメータの変更";
+      case 6: return "別の口座に接続";
+      case 7: return "テンプレートの適用";
+      case 8: return "初期化に失敗";
+      case 9: return "MT5(ターミナル)の終了";
+   }
+   return "不明";
+}
+
+// ★起動直後は、サーバー時間(TimeCurrent)が、前回の古い値のままのことがあるため、起動・終了の記録は、PCの時計(TimeLocal)で測る。
+//   PCの時計は、日本時間(JST)前提。理由CSVの行の時刻は、サーバー時間に直して渡す(CSV側がJSTに直す)。
+datetime ServerFromLocal(const datetime loc)
+{
+   datetime sv = loc - InpJstOffWinter * 3600;
+   int off = IsSummerTime(sv) ? InpJstOffSummer : InpJstOffWinter;
+   return loc - off * 3600;
+}
+
+string PcStamp(const datetime t)   // PC時刻の「日付 時:分」
+{
+   return TimeToString(t, TIME_DATE|TIME_MINUTES);
+}
+
+void LifecycleStartNote()
+{
+   string gA = StringFormat("DK_EA_LASTALIVE_%d", InpMagic);
+   string gS = StringFormat("DK_EA_LASTSTOP_%d",  InpMagic);
+   string gR = StringFormat("DK_EA_LASTSTOPR_%d", InpMagic);
+   datetime nowL = TimeLocal();
+   string note = "EA起動(";
+   datetime la = 0;
+   if(GlobalVariableCheck(gA))
+   {
+      la = (datetime)GlobalVariableGet(gA);
+      note += StringFormat("前回の生存確認 %s=%d分前", PcStamp(la), (int)((nowL - la) / 60));
+   }
+   else note += "前回の記録なし";
+   if(GlobalVariableCheck(gS))
+   {
+      datetime ls = (datetime)GlobalVariableGet(gS);
+      if(la > 0 && ls + 120 < la)
+         note += StringFormat(" / 前回は、正常に終了していない可能性(最後の終了の記録 %s は、最後の生存確認より古い=PCスリープ・強制終了・停電など)", PcStamp(ls));
+      else
+         note += StringFormat(" / 前回の終了 %s 理由=%s", PcStamp(ls), DeinitReasonText((int)GlobalVariableGet(gR)));
+   }
+   else note += " / 前回の終了の記録なし";
+   note += ")";
+   Print("[EA] ", note);
+   LogReason(ServerFromLocal(nowL), note);
+   GlobalVariableSet(gA, (double)nowL);
+}
+
+//+------------------------------------------------------------------+
+//| ★2026-11-13追加: 一目スパンの診断ログ(記録のみ。判定は変えない)。保存先: MQL5\\Files\\<InpReasonDir>\\spanlog_YYYYMMDD.csv |
+//|   本体インジのルール(reason55)が、いま表示されている雲(=先行本数InpSpanShift本前に計算した値)と、価格(足の終値)で      |
+//|   判定していることを、毎分、そのまま残す。EAは、インジのバッファ(buf64=スパンA生値/65=スパンB生値/66=先行本数)から     |
+//|   「いま表示されている値」(shift+先行本数前)を読み、本体インジと同じ式で判定する。                                  |
+//|   列: time(理由CSVのtimeと同じ=新しい足の開始・JST) / reason_code(直前に確定した足のコード) / span_shift /           |
+//|       span_a・span_b(表示されている雲のA・B) / cloud_dir(B>A=Bが上 / A>B=Aが上 / A=B) / cloud_top・cloud_bottom /    |
+//|       close(直前に確定した足の終値) / cloud_pos(雲の上・雲の中・雲の下) /                                          |
+//|       cur_rule_ok(現行ルール: B>Aは価格>B・A>Bは価格<Bの時だけ1。買い売りは問わない) /                                |
+//|       new_outside_ok(新ルール案1: 雲の外なら1。買い売りは問わない) /                                                |
+//|       new_buy_ok(新ルール案2: 買いは雲の上だけ1) / new_sell_ok(売りは雲の下だけ1)。値が読めない時は空欄。            |
+//+------------------------------------------------------------------+
+string SpanPosText(const double price, const double a, const double b)
+{
+   if(a <= 0.0 || b <= 0.0 || price <= 0.0) return "";
+   double top = MathMax(a, b), bot = MathMin(a, b);
+   if(price > top) return "雲の上";
+   if(price < bot) return "雲の下";
+   return "雲の中";
+}
+
+int SpanCurOk(const double price, const double a, const double b)   // 本体インジの SpanAllowed と同じ式(買い売りは問わない)
+{
+   int st = (b > a) ? 1 : ((a > b) ? -1 : 0);
+   if(st == 0) return 0;
+   return ((st == 1) ? (price > b) : (price < b)) ? 1 : 0;
+}
+
+string SpanDirText(const double a, const double b)
+{
+   if(a <= 0.0 || b <= 0.0) return "";
+   return (b > a) ? "B>A(Bが上)" : ((a > b) ? "A>B(Aが上)" : "A=B");
+}
+
+// 1行分(列の並びは上の説明どおり)をファイルへ書く
+void SpanDiagWrite(const int h, const string tJst, const string rcode, const int sh, const double a, const double b, const double price)
+{
+   string pos = SpanPosText(price, a, b);
+   bool ok = (pos != "");
+   FileWrite(h, tJst, rcode, sh,
+             ok ? StringFormat("%.3f", a) : "", ok ? StringFormat("%.3f", b) : "", SpanDirText(a, b),
+             ok ? StringFormat("%.3f", MathMax(a, b)) : "", ok ? StringFormat("%.3f", MathMin(a, b)) : "",
+             price > 0.0 ? StringFormat("%.3f", price) : "", pos,
+             ok ? IntegerToString(SpanCurOk(price, a, b)) : "",
+             ok ? IntegerToString(pos != "雲の中" ? 1 : 0) : "",
+             ok ? IntegerToString(pos == "雲の上" ? 1 : 0) : "",
+             ok ? IntegerToString(pos == "雲の下" ? 1 : 0) : "");
+}
+
+void SpanDiagHeader(const int h)
+{
+   FileWrite(h, "time", "reason_code", "span_shift", "span_a", "span_b", "cloud_dir", "cloud_top", "cloud_bottom", "close", "cloud_pos",
+             "cur_rule_ok", "new_outside_ok", "new_buy_ok", "new_sell_ok");
+}
+
+void WriteSpanDiagRow(datetime bt)
+{
+   if(!InpLogSpanDiag) return;
+   int jstOff = IsSummerTime(bt) ? InpJstOffSummer : InpJstOffWinter;
+   datetime btJst = bt + jstOff * 3600;
+   MqlDateTime dt; TimeToStruct(btJst, dt);
+   string fname = StringFormat("%s\\spanlog_%04d%02d%02d.csv", InpReasonDir, dt.year, dt.mon, dt.day);
+   bool isNew = !FileIsExist(fname);
+   int h = FileOpen(fname, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+   if(h == INVALID_HANDLE) return;   // 記録のみ。開けなくても何もしない
+   FileSeek(h, 0, SEEK_END);
+   if(isNew) SpanDiagHeader(h);
+   int sh = (int)ReadBufRaw(66, 1);   // 先行本数(本体インジのInpSpanShift)
+   if(sh <= 0) sh = 130;
+   double a = ReadBufRaw(64, 1 + sh);   // いま表示されている値 = shift本前に計算した生値
+   double b = ReadBufRaw(65, 1 + sh);
+   double price = iClose(_Symbol, _Period, 1);   // 直前に確定した足の終値(本体インジが判定に使う close[i])
+   SpanDiagWrite(h, TimeToString(btJst, TIME_DATE|TIME_MINUTES), IntegerToString(ReadReason(1)), sh, a, b, price);
+   FileClose(h);
+}
+
+//--- 直近N本分の一目スパン診断を、spanlog_backfill_日付.csv(起動した日のJST日付。同じ日は上書き)に1回書き出す。裏のインジが計算を終えるまで、OnTimerから再試行する。
+void WriteSpanBackfill()
+{
+   if(!InpLogSpanDiag || InpLongBackfillBars <= 0 || g_spanBackfillDone) return;
+   if(hInd == INVALID_HANDLE) return;
+   int sh = (int)ReadBufRaw(66, 1);
+   if(sh <= 0) sh = 130;
+   int n = InpLongBackfillBars;
+   if(BarsCalculated(hInd) < n + sh + 10) return;     // 裏のインジが、まだ計算を終えていない(あとで再試行)
+   double sa[], sb[], cl[];
+   datetime tm[];
+   if(CopyBuffer(hInd, 64, 0, n + sh, sa) <= 0 || CopyBuffer(hInd, 65, 0, n + sh, sb) <= 0) return;
+   if(CopyClose(_Symbol, _Period, 0, n, cl) <= 0 || CopyTime(_Symbol, _Period, 0, n, tm) <= 0) return;
+   int na = ArraySize(sa), nb = ArraySize(sb), nc = ArraySize(cl), nt = ArraySize(tm);
+   int m = MathMin(MathMin(nc, nt), MathMin(na, nb) - sh);   // 表示値 = sh本前の生値が必要
+   if(m < 10) return;
+   datetime nowSrv = TimeCurrent();
+   int offNow = IsSummerTime(nowSrv) ? InpJstOffSummer : InpJstOffWinter;
+   MqlDateTime dn; TimeToStruct(nowSrv + offNow * 3600, dn);
+   string fname = StringFormat("%s\\spanlog_backfill_%04d%02d%02d.csv", InpReasonDir, dn.year, dn.mon, dn.day);
+   int h = FileOpen(fname, FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+   if(h == INVALID_HANDLE) return;
+   SpanDiagHeader(h);
+   // 各配列は古い順(非シリーズ)。最新の足から数えた位置 e で揃える(e=0が最新)。表示値は、最新から e+sh 本前の生値。
+   for(int k = 0; k < m; k++)
+   {
+      int e2 = m - 1 - k;
+      datetime tt  = tm[nt - 1 - e2];
+      int      off = IsSummerTime(tt) ? InpJstOffSummer : InpJstOffWinter;
+      double   a   = sa[na - 1 - e2 - sh];
+      double   b   = sb[nb - 1 - e2 - sh];
+      if(a == EMPTY_VALUE || !MathIsValidNumber(a)) a = 0.0;
+      if(b == EMPTY_VALUE || !MathIsValidNumber(b)) b = 0.0;
+      SpanDiagWrite(h, TimeToString(tt + off * 3600, TIME_DATE|TIME_MINUTES), "", sh, a, b, cl[nc - 1 - e2]);
+   }
+   FileClose(h);
+   g_spanBackfillDone = true;
+   Print("[EA] 一目スパンの診断(直近", m, "本)を書き出しました: ", fname);
+}
+
+//+------------------------------------------------------------------+
+//| ★2026-11-09追加→(2回目)更新: 長期足の診断ログ(記録のみ)。保存先: MQL5\\Files\\<InpReasonDir>\\longlog_YYYYMMDD.csv(JST日付) |
+//|   列: time(新しい足の開始=理由CSVのtimeと同じ) / state_live・lsl_live・dist_live(いまの足=shift0) /               |
+//|       state_conf・lsl_conf・dist_conf(直前に確定した足=shift1。理由CSVのcodeの判定に使われる値) /                 |
+//|       gray_th(=|lsl|-dist。長期足のグレー閾値) / long_ma_conf(長期MAの値) / close_conf / atr_pips_conf /          |
+//|       period_conf(その足で使った長期足の期間。時間帯切替で変わる) / ma_type_conf(MAの種類。EMAなど)。            |
+//|   lsl=ATR正規化・平滑化した長期MAの傾き(indicator buf46)、dist=|lsl|-グレー閾値(buf47)。                         |
+//|   期間・MAの種類は、indicator buf67/68(2026-11-09 v10で追加)。                                                |
+//|   長期足の状態は、lslだけから再現できる(色に入る=gray_th×ヒステリシス比以上 / 維持=gray_th超)ため、              |
+//|   基準を変えた時に、いつ上昇・下降に入るかを過去のログで確かめられる。                                           |
+//|   ※ファイル名は、前の版の long_*.csv(列が違う)と混ざらないよう、longlog_ にした。                              |
+//+------------------------------------------------------------------+
+string MaTypeName(const int t)   // ENUM_WMATYPEの数値 → 名前
+{
+   switch(t)
+   {
+      case 0:  return "SMA";    case 1:  return "WMA";   case 2:  return "SMMA";  case 3:  return "TMA";
+      case 4:  return "VWMA";   case 5:  return "KAMA";  case 6:  return "VIDYA"; case 7:  return "FRAMA";
+      case 8:  return "ATR_ADAPT"; case 9: return "ATR_TREND"; case 10: return "EMA"; case 11: return "HMA";
+      case 12: return "DEMA";   case 13: return "ZLEMA"; case 14: return "MAMA";  case 15: return "LSMA";
+      case 16: return "VWAP";
+   }
+   return "?";
+}
+
+void WriteLongDiagRow(datetime bt)
+{
+   if(!InpLogLongDiag) return;
+   int jstOff = IsSummerTime(bt) ? InpJstOffSummer : InpJstOffWinter;
+   datetime btJst = bt + jstOff * 3600;
+   MqlDateTime dt; TimeToStruct(btJst, dt);
+   string fname = StringFormat("%s\\longlog_%04d%02d%02d.csv", InpReasonDir, dt.year, dt.mon, dt.day);
+   bool isNew = !FileIsExist(fname);
+   int h = FileOpen(fname, FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+   if(h == INVALID_HANDLE) return;   // 記録のみ。開けなくても、何もしない(理由CSVの書き込みには影響しない)
+   FileSeek(h, 0, SEEK_END);
+   if(isNew)
+      FileWrite(h, "time", "state_live", "lsl_live", "dist_live", "state_conf", "lsl_conf", "dist_conf", "gray_th", "long_ma_conf", "close_conf", "atr_pips_conf", "period_conf", "ma_type_conf");
+   double lslC  = ReadBufRaw(46, 1);
+   double distC = ReadBufRaw(47, 1);
+   FileWrite(h, TimeToString(btJst, TIME_DATE|TIME_MINUTES),
+             ReadLongState(0), StringFormat("%.5f", ReadBufRaw(46, 0)), StringFormat("%.5f", ReadBufRaw(47, 0)),
+             ReadLongState(1), StringFormat("%.5f", lslC), StringFormat("%.5f", distC), StringFormat("%.5f", MathAbs(lslC) - distC),
+             StringFormat("%.3f", ReadBufRaw(5, 1)), StringFormat("%.3f", iClose(_Symbol, _Period, 1)), StringFormat("%.2f", AtrPips(1)),
+             StringFormat("%.0f", ReadBufRaw(67, 1)), MaTypeName((int)ReadBufRaw(68, 1)));
+   FileClose(h);
+}
+
+//--- 直近N本分の長期足の値を、longlog_backfill_YYYYMMDD.csv(起動した日のJST日付。同じ日は上書き)に1回書き出す。裏のインジが計算を終えるまで、OnTimerから再試行する。
+void WriteLongBackfill()
+{
+   if(!InpLogLongDiag || InpLongBackfillBars <= 0 || g_longBackfillDone) return;
+   if(hInd == INVALID_HANDLE) return;
+   int n = InpLongBackfillBars;
+   if(BarsCalculated(hInd) < n + 10) return;       // 裏のインジが、まだ計算を終えていない(あとで再試行)
+   double st[], ls[], ds[], ma[], cl[], pr[], ty[];
+   datetime tm[];
+   if(CopyBuffer(hInd, 15, 0, n, st) <= 0 || CopyBuffer(hInd, 46, 0, n, ls) <= 0 ||
+      CopyBuffer(hInd, 47, 0, n, ds) <= 0 || CopyBuffer(hInd, 5, 0, n, ma) <= 0 ||
+      CopyBuffer(hInd, 67, 0, n, pr) <= 0 || CopyBuffer(hInd, 68, 0, n, ty) <= 0) return;
+   if(CopyClose(_Symbol, _Period, 0, n, cl) <= 0 || CopyTime(_Symbol, _Period, 0, n, tm) <= 0) return;
+   int m = MathMin(MathMin(MathMin(ArraySize(st), ArraySize(ls)), MathMin(ArraySize(ds), ArraySize(ma))),
+                   MathMin(MathMin(ArraySize(cl), ArraySize(tm)), MathMin(ArraySize(pr), ArraySize(ty))));
+   if(m < 10) return;
+   datetime nowSrv = TimeCurrent();
+   int offNow = IsSummerTime(nowSrv) ? InpJstOffSummer : InpJstOffWinter;
+   MqlDateTime dn; TimeToStruct(nowSrv + offNow * 3600, dn);
+   string fname = StringFormat("%s\\longlog_backfill_%04d%02d%02d.csv", InpReasonDir, dn.year, dn.mon, dn.day);
+   int h = FileOpen(fname, FILE_WRITE|FILE_CSV|FILE_ANSI, ',');
+   if(h == INVALID_HANDLE) return;
+   FileWrite(h, "time", "state", "lsl", "dist", "gray_th", "long_ma", "close", "period", "ma_type");
+   // 各配列は古い順(非シリーズ)。長さが揃わない時は、末尾(最新側)から m 本を使う。
+   int oSt = ArraySize(st) - m, oLs = ArraySize(ls) - m, oDs = ArraySize(ds) - m, oMa = ArraySize(ma) - m;
+   int oCl = ArraySize(cl) - m, oTm = ArraySize(tm) - m, oPr = ArraySize(pr) - m, oTy = ArraySize(ty) - m;
+   for(int k = 0; k < m; k++)
+   {
+      datetime tt  = tm[oTm + k];
+      int      off = IsSummerTime(tt) ? InpJstOffSummer : InpJstOffWinter;
+      double   l   = ls[oLs + k], d = ds[oDs + k];
+      FileWrite(h, TimeToString(tt + off * 3600, TIME_DATE|TIME_MINUTES), (int)st[oSt + k],
+                StringFormat("%.5f", l), StringFormat("%.5f", d), StringFormat("%.5f", MathAbs(l) - d),
+                StringFormat("%.3f", ma[oMa + k]), StringFormat("%.3f", cl[oCl + k]),
+                StringFormat("%.0f", pr[oPr + k]), MaTypeName((int)ty[oTy + k]));
+   }
+   FileClose(h);
+   g_longBackfillDone = true;
+   Print("[EA] 長期足の診断(直近", m, "本)を書き出しました: ", fname);
+}
+
+//+------------------------------------------------------------------+
 //| 理由を1行CSVに追記(日付ごとにファイル分割)                      |
 //|   保存先: MQL5\Files\<InpReasonDir>\reason_YYYYMMDD.csv          |
 //+------------------------------------------------------------------+
@@ -3146,18 +3794,21 @@ void WriteReasonRow(datetime bt, int code, int pos, int cd, int tf, string eaNot
       //   受けて、あと僅かで色が付く/まだ全然閾値に届いていない、を数値で確認できるようにした。
       //   正=色が付く側/負=グレー側。判定にはこの列自体は使わない・記録専用。
       StringFormat("%.4f", ReadBufRaw(45,0)),
+      // ★2026-11-09修正: 列25〜31(dbg_*・minor/major_spike_*)は、indicator buf64〜70を読んでいたが、現行のindicator(1M_7)にこれらのデバッグ用バッファは無く、
+      //   2026-11-03に一目スパンのバッファ(buf64=スパンA/65=スパンB/66=先行本数)を足してから、スパンの値(価格や130)が入る不具合があった(それ以前は0)。
+      //   以後は、従来どおり0を書く(列の並びは変えない=取込みスクリプト・モニターへの影響なし)。
       // ★2026-08-27(2回目)追加: reason45/47/48の誤発動/不発動調査用デバッグ列(indicator buf65-69)。
       //   原因判明後も内部状態の観測窓として残す。判定にはこれらの列自体は使わない・記録専用。
-      StringFormat("%.0f", ReadBufRaw(65,0)),
-      StringFormat("%.0f", ReadBufRaw(66,0)),
-      StringFormat("%.0f", ReadBufRaw(67,0)),
+      "0",
+      "0",
+      "0",
       // ★2026-08-27(5回目)追加: Minor/Majorスパイク判定の実測値・閾値(indicator buf64/69/68/70)。
       //   田島さんご要望「エントリーリーズンでこの値がわかるように」を受けて、旧fast_spike_*列を
       //   置き換える形で追加。判定にはこれらの列自体は使わない・記録専用。
-      StringFormat("%.2f", ReadBufRaw(64,0)),
-      StringFormat("%.2f", ReadBufRaw(69,0)),
-      StringFormat("%.2f", ReadBufRaw(68,0)),
-      StringFormat("%.2f", ReadBufRaw(70,0)));
+      "0.00",
+      "0.00",
+      "0.00",
+      "0.00");
    FileClose(h);
    // ★理由CSVを実際に書けた時刻をGVへ(watchdogの「reasonログ」健全性判定に使用)
    if(InpHeartbeat)
