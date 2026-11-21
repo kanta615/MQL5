@@ -5,6 +5,16 @@
 //|   確認できたため、1M_7として名称変更したもの。                     |
 //|   最終更新: 2026-10-22(2回目)                                     |
 //|                                                                  |
+//|  ■ 修正日: 2026-11-20  修正内容(①再エントリーロックを長期足→平均足に変更 ②背景色の変化から12本超過で見送り=reason57)
+//|    ①田島さんご指示「長期足を平均足に変更して規制」。reason50の「同色内は1回のみ」ロックを、長期足の色ではなく平均足の色で数える。
+//|      平均足の色が変わる(陽線⇔陰線)と、新しい色の1回目に戻る。長期足のグレー禁止(InpBlockLongGray)や長期足不一致の規則はそのまま。
+//|      新input InpLockByHa(true=平均足でロック/false=従来の長期足でロック)。11/20 昨夜00:17・今朝09:34に入れなかった(長期足が17時間下降のままでロック継続)ための変更。
+//|    ②田島さんご指示「背景色が変わった(グレー→色付き)時から数えて12本を過ぎたらエントリーしない」(11/20 01:00のエントリーが問題)。
+//|      背景レジーム(BufWaveReg=ログのwave_color)が、グレーや逆の色から今の色に変わった足を1本目として数え、
+//|      InpBgEntryMaxBars(12)本目を過ぎたら、同じ色のあいだは矢印を出さない(新reason57)。色がまた変われば、1本目から数え直し。0で無効。
+//|      ※グレー→色付きだけでなく、色付き→反対の色へ直接変わった場合も、新しい色の1本目として数える。
+//|    ③モニターの停止規則タブに「いまのエントリー規則」を出すため、設定値(InpLockByHa/InpBgEntryMaxBars)をGV DK_RULE_LOCKHA_<チャートID>/DK_RULE_BGMAX_<チャートID>で公開(表示専用)。
+//|
 //|  ■ 修正日: 2026-11-11  修正内容(止まった原因を見つける記録=ブラックボックス)          |
 //|    11/11 21:13の起動ログで、「矢印GVの更新を再開: 前回の更新は137685秒前(=約38時間前=  |
 //|    11/10 06:58。日次の取引休止の直前)」と出た。チャートのインジが、休止明けに再開せず、 |
@@ -509,6 +519,8 @@ input int          InpLongSlopeSmooth = 4;                  // 長期足: 傾き
 input double       InpLongGrayThresh  = 0.03;               // 長期足のグレー閾値(ATR正規化slope。|傾き|<これ=ほぼ水平=グレー=待機)★2026-07-08(_13)変更:0.05→0.03=1波目でグレーを早く抜けさせる
 input double       InpLongHystRatio   = 1.3;                // 長期足: ヒステリシス(色に入る閾値=GrayThresh×これ。境界の青⇔グレーちらつき防止)★2026-07-08(_13)変更:1.5→1.3=同上
 input bool         InpUseLongSegLock  = true;                // ★2026-09-10追加: 長期足が同色の間はエントリーを1回だけに制限(WMAの再エントリーロックと同じ考え方。長期足がグレーに戻るまで同方向の再エントリーを禁止)
+input bool         InpLockByHa        = true;                // ★2026-11-20追加: 再エントリーロック(reason50)を平均足の色で数える。true=平均足の同色内は1回のみ(色が変わると解除) / false=従来(長期足の同色内は1回のみ)
+input int          InpBgEntryMaxBars  = 12;                  // ★2026-11-20追加: 背景色(波レジーム)が変わった足から数えて、この本数を過ぎたら同じ色のあいだ新規矢印を出さない(reason57)。0=無効
 
 input group "② 15分足"
 input ENUM_WMATYPE InpM15Type   = WT_SMA;                   // ★2026-10-30: WT_KAMA→WT_SMAに変更(田島さんご指示)。【以前の値: WT_KAMA】戻す場合は WT_KAMA。 Ver8/2026-06-22: 15分足MAの種類(KAMA。適応型でレンジは横ばい→グレー、トレンドで追従)
@@ -720,7 +732,8 @@ double BufHaClose[];     // ★2026-06-25: 平均足 終値(後平滑後)。Copy
                          //   1=BUY発生 2=SELL発生 10=グレー 11=M1無し 12=圧縮
                          //   13=オーバーシュート 14=再エントリーロック 20=保有中 30=EXIT
                          //   35=ZigZag弱波(反対側到達間近・2026-07-06) 36=ADX継続未達(直前グレーからの即時フリップ・2026-07-06)
-                         //   50=長期足 再エントリーロック(同色内は1回のみ・2026-09-10)
+                         //   50=再エントリーロック(同色内は1回のみ・2026-09-10。2026-11-20から既定は平均足の色で数える=InpLockByHa)
+                         //   57=背景色の変化からInpBgEntryMaxBars本を過ぎたため見送り(2026-11-20)
                          //   51=決済後同方向再エントリー禁止(5分間・2026-09-22)
 
 //=== アラート重複防止 ============================================
@@ -2814,9 +2827,18 @@ for(int i=loopFrom; i<rates_total; i++)
 
       // ★2026-09-10追加: 長期足版の再エントリーロック。WMAの上と全く同じ考え方
       //   (グレーを挟んだら解除/グレー無しの直接フリップでは解除しない)を長期足(longDir)に適用する。
-      if(longDir==1 && longTrendDir!=1)        { longTrendDir=1;  }
-      else if(longDir==-1 && longTrendDir!=-1) { longTrendDir=-1; }
-      if(longDir==0) { longSegHadEntry = false; }
+      if(InpLockByHa)
+      {
+         // ★2026-11-20: 平均足の色でロックを数える。色が変わったら新しい色の1回目に戻る(グレーが無いので、色の変化=解除)
+         int haDirNow = (haColor[i]==0) ? 1 : -1;
+         if(longTrendDir != haDirNow) { longTrendDir = haDirNow; longSegHadEntry = false; }
+      }
+      else
+      {
+         if(longDir==1 && longTrendDir!=1)        { longTrendDir=1;  }
+         else if(longDir==-1 && longTrendDir!=-1) { longTrendDir=-1; }
+         if(longDir==0) { longSegHadEntry = false; }
+      }
 
       // --- 圧縮(スクイーズ)判定（BBがKCの内側=圧縮）M5基準 ---
       bool sqzOn = false;
@@ -3604,6 +3626,19 @@ for(int i=loopFrom; i<rates_total; i++)
                if(rrHere >= 0.0 && rrHere * 100.0 < InpMinRrEntry) { allowFinal = false; BufReason[i] = 56.0; }   // reason56: RR不足で禁止
             }
 
+            // ★2026-11-20追加: 背景色の変化から数えてInpBgEntryMaxBars本を過ぎたら、同じ色のあいだは矢印を出さない(reason57)。
+            //   背景レジームBufWaveReg(ログのwave_color)が今の色になった足を1本目とする(グレー→色付き/色付き→反対色)。色が変われば数え直し。
+            if(InpBgEntryMaxBars > 0 && allowFinal)
+            {
+               int bgNow = (int)BufWaveReg[i];
+               if(bgNow != 0)
+               {
+                  int bgAge = 0;   // 今の色になった足を0とした経過本数(1本目=0)
+                  while(bgAge <= InpBgEntryMaxBars && i - bgAge - 1 >= 0 && (int)BufWaveReg[i - bgAge - 1] == bgNow) bgAge++;
+                  if(bgAge + 1 > InpBgEntryMaxBars) { allowFinal = false; BufReason[i] = 57.0; }   // reason57: 背景色の変化から規定本数超過で禁止
+               }
+            }
+
             if(allowFinal)
             {
                if(d==1)
@@ -3725,6 +3760,9 @@ for(int i=loopFrom; i<rates_total; i++)
       }
       GlobalVariableSet(StringFormat("DK_SIG_%I64d",    cid), sig);
       GlobalVariableSet(StringFormat("DK_SIG_TS_%I64d", cid), (double)TimeCurrent());   // 生存確認用(EAが古いGVで入らないため)
+      // ★2026-11-20追加: モニターの停止規則タブに「いまのエントリー規則」を出すため、設定値をGVで公開(表示専用。判断には使わない)
+      GlobalVariableSet(StringFormat("DK_RULE_LOCKHA_%I64d", cid), InpLockByHa ? 1.0 : 0.0);
+      GlobalVariableSet(StringFormat("DK_RULE_BGMAX_%I64d",  cid), (double)InpBgEntryMaxBars);
    }
 
    // ★2026-10-16追加: 計算が復帰したことをJournalへ(止まっていた場合のみ)

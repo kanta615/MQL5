@@ -2,6 +2,40 @@
 //|                              Dokakotsu_Risk-Reward Ratio.mq5      |
 //|   DokaKotsu Risk-Reward Ratio(旧 Dokakotsu_Dow_Indicator_v1)     |
 //+------------------------------------------------------------------+
+//| ■ 修正日: 2026-11-21  修正内容(長期ラインをテキスト保存し、上下の不足を補う)(v2.07)  |
+//|   田島さんご指示。急な下落で現在値の下にラインが無くなる件の追加対策。毎回、古い履歴を |
+//|   計算すると重く、自動売買が止まる恐れがあるため、「数ヶ月前からの長期ライン」は        |
+//|   たまにだけスキャンしてテキスト(CSV)に保存し、普段はそのファイルを読むだけにした。      |
+//|   ①スキャン: 起動時にファイルが無い/古い時と、以降は一定時間ごと(既定24時間)だけ。      |
+//|     H4の確定したスイング高値・安値を、InpLongCacheMonths(既定6ヶ月)前から集め、       |
+//|     近い価格を1本にまとめ、点数(まとめた数+新しさ)の高い順に最大InpLongCacheMax本。   |
+//|     期間内の最高値・最安値のラインは必ず含める。約800本のH4を1日1回なので負荷は小さい。 |
+//|   ②保存: MQL5\Files\DokaKotsu_rr_lines\<通貨>_longlines.csv (InpLongCacheCommon=true  |
+//|     なら共通フォルダ)。再起動しても、ファイルが新しければスキャンしない。               |
+//|   ③使い方: 通常のライン選びの後、現在値の上側・下側で、InpImpMinPerSide(既定3)に       |
+//|     足りない側だけ、保存ラインから現在値に近い順に追加(forced=RR候補に使う。表示は      |
+//|     「(長期)」付き)。ファイルが無い・読めない時は従来どおり(v2.06と同じ)。             |
+//|   ※スキャン期間より安く(高く)なった時は、その側に保存ラインも無い。その時は            |
+//|     InpLongCacheMonthsを増やす(例: 12)。OnCalculateでの履歴の再計算はしない。          |
+//|   RRの計算式・GV・EAへの受け渡しの形は変更なし。                                      |
+//| ■ 修正日: 2026-11-20  修正内容(現在値の上下に、必ずラインを残す)(v2.06)             |
+//|   田島さんご指示。急な下落で、現在値の下に、点数の高いラインが無くなり、RR候補が    |
+//|   ゼロになった(パネル「候補なし」/ 11/19夜〜11/20)。原因: 重要なライン(点数の高い    |
+//|   InpImpLineMax本だけを表示)が、すべて現在値の上側になり、下側のラインが残らなかった。|
+//|   対策: 新input InpImpMinPerSide(既定3)。現在値の上側・下側のそれぞれに、最低この本数 |
+//|   のラインを残す。足りない側は、候補の中で点数の高いものから追加する(ライン同士の最小  |
+//|   間隔は守る)。追加したラインは、★の数が足りなくても、RR候補に使う(RR候補の対象に   |
+//|   なる)。0で無効=従来どおり。ラインを探す期間(InpLineLookback)の中に、下側の候補が |
+//|   無い時は、InpLineLookbackを増やす(例: 2400=H1で約100営業日)。                    |
+//|   RRの計算式・GV・EAへの受け渡しの形は変更なし(候補が出るようになるだけ)。          |
+//| ■ 修正日: 2026-11-05  修正内容(パネルの向きの文字に色)(v2.05)              |
+//|   田島さんご指示。RR候補の行の「▲上昇(買い)」をアクア、「▼下降(売り)」を    |
+//|   マゼンタ(マジェンタ)に変更。行のほかの文字(RR1 289% / 勝ち… / 負け…)は    |
+//|   従来どおり(RRが1以上=白 / 1未満=紫)。見出しの「トレンド: 上昇/下降」と      |
+//|   他の行は変更なし。1つの行を、前・向き・後ろの3つの文字に分けて描き、        |
+//|   向きの部分だけ色を変える(位置は文字の幅を測って合わせる=見た目は従来と同じ)。|
+//|   新規input: InpDirBuyColor(アクア)/InpDirSellColor(マゼンタ)。                |
+//|   表示のみの変更。RRの計算・GV・EAへの受け渡しは変更なし。                    |
 //| ■ 修正日: 2026-11-03(5回目)  修正内容(RR候補ごとのSL・TPをGVで公開)      |
 //|   田島さんご指示「RR100%未満はエントリーしない規則」と「エントリーリーズンに |
 //|   RR240 RR100 RR40 の形でRRを記載」のため。表示は変更なし。                |
@@ -161,7 +195,7 @@
 //|   グローバル変数 YDS_*_<チャートID> で公開する(EAはそれを読むだけ)。 |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu Risk-Reward Ratio (formerly Dokakotsu_Dow_Indicator / Yosuga Dow)"
-#property version   "2.04"
+#property version   "2.07"
 #property description "DokaKotsu Risk-Reward Ratio: 上位足の重要な水平線から、勝ち・負けの線を組み合わせたRR候補(RR1・RR2…)を高い順に表示。矢印は任意(既定は非表示)"
 #property indicator_chart_window
 #property indicator_buffers 16
@@ -202,7 +236,16 @@ input int    InpAtrPeriod  = 14;      // ATR期間(執行足)
 input group "=== 3. 重要な水平線(上位足の高値・安値を集めて点数づけ) ==="
 input bool   InpShowLines      = true;    // 水平線を描画する
 input int    InpImpLineMax     = 8;       // 表示する重要な水平線の数(点数の高い順)
+input int    InpImpMinPerSide  = 3;       // ★2026-11-20追加: 現在値の上側・下側のそれぞれに、最低この本数のラインを残す(足りない側は点数の高い順に追加。RR候補に使う)。0=無効
 input int    InpLineLookback   = 600;     // 候補を探す上位足の本数
+input group "=== 3b. 長期ライン(テキスト保存) ★2026-11-21追加 ==="
+input bool   InpUseLongCache   = true;    // 長期ラインを保存ファイルから補う(上側/下側のラインが足りない時だけ)
+input int    InpLongCacheMonths = 6;      // スキャンする期間(何ヶ月前から。H4)
+input ENUM_TIMEFRAMES InpLongCacheTF = PERIOD_H4;  // スキャンする時間足
+input int    InpLongCacheSwing = 2;       // スイング判定の左右の本数
+input int    InpLongCacheRefreshH = 24;   // 再スキャンの間隔(時間)。ファイルが新しければ起動時もスキャンしない
+input int    InpLongCacheMax   = 15;      // 保存するラインの最大本数
+input bool   InpLongCacheCommon = false;  // true=共通フォルダに保存(複数のMT5で共有) / false=このMT5のFiles
 input double InpClusterAtr     = 0.5;     // この幅(上位足ATRの倍数)以内の高値・安値は1本のラインにまとめる
 input double InpTouchAtr       = 0.25;    // ラインの「反発」を数える幅(上位足ATRの倍数)
 input int    InpMajorBars1     = 12;      // 主要なスイングの目安(前後この本数で最も高い/低い=点数3)
@@ -293,6 +336,8 @@ input int    InpRrLossLines  = 2;            // 負けの線として使う、�
 input double InpRrMaxWinAtr  = 6.0;          // 勝ちの線が現在値からこの値(上位足ATR倍)より遠い候補は除く(0=制限なし)
 input color  InpRrOkColor    = clrWhite;     // RRが1以上の行の色
 input color  InpRrLowColor   = C'204,102,255'; // RRが1未満の行の色(明るい紫)
+input color  InpDirBuyColor  = clrAqua;     // ★2026-11-05追加: RR候補の行の「▲上昇(買い)」の色
+input color  InpDirSellColor = clrMagenta;  // ★2026-11-05追加: RR候補の行の「▼下降(売り)」の色
 input color  InpPanelColor   = clrWhite;     // パネルの文字色(既定は白。全ての行がこの色)
 input int    InpPanelFontSize = 8;           // パネルの文字の大きさ(pt)。以前は9。見出し・候補の行はこの値、凡例の行は1小さい
 input bool   InpPanelBgShow   = true;        // パネルの背景(四角)を表示する。DokaKotsu_Dashboardと同じ形式(塗りつぶし・枠線つき)
@@ -638,6 +683,8 @@ struct YLine
    datetime firstTime;   // 最初のピボットの時刻(線の始点)
    int      tfMask;      // 含まれる時間足(ビット: 1=時間足1 2=時間足2 4=時間足3 8=時間足4 16=上位足のみ)
    int      nTf;         // 重なった時間足の数
+   bool     forced;      // ★2026-11-20: 上側/下側の最低本数のために追加したライン(★の数が足りなくてもRR候補に使う)
+   bool     fromCache;   // ★2026-11-21: 長期ライン(保存ファイル)から追加したライン
 };
 YLine  g_imp[];
 int    g_impN = 0;
@@ -804,6 +851,220 @@ string TfListText(const int mask)
    return r;
 }
 
+//+------------------------------------------------------------------+
+//| ★2026-11-21 長期ライン: H4を数ヶ月前からスキャン → テキスト(CSV)に保存      |
+//| 普段はメモリのラインを使うだけ。スキャンは起動時(ファイルが古い時)と        |
+//| 一定時間ごと(既定24時間)だけ。                                           |
+//+------------------------------------------------------------------+
+struct LcLine
+{
+   double   price;
+   double   score;
+   int      pivots;
+   datetime firstT;
+   datetime lastT;
+};
+LcLine   g_lc[];
+int      g_lcN        = 0;
+datetime g_lcScanTime = 0;      // 最後にスキャンした時刻(ファイルの時刻を含む)
+datetime g_lcNextTry  = 0;      // スキャン失敗時の再試行時刻
+bool     g_lcLoaded   = false;
+
+string LcFileName() { return "DokaKotsu_rr_lines\\" + _Symbol + "_longlines.csv"; }
+int    LcFileFlags(const bool write)
+{
+   int fl = (write ? FILE_WRITE : (FILE_READ | FILE_SHARE_READ | FILE_SHARE_WRITE)) | FILE_TXT | FILE_ANSI;
+   if(InpLongCacheCommon) fl |= FILE_COMMON;
+   return fl;
+}
+
+// ファイルを読む(設定=通貨・時間足・期間が同じ時だけ有効)
+bool LcLoad()
+{
+   g_lcN = 0;
+   int h = FileOpen(LcFileName(), LcFileFlags(false));
+   if(h == INVALID_HANDLE) return false;
+   bool okHead = false;
+   datetime scanT = 0;
+   while(!FileIsEnding(h))
+   {
+      string ln = FileReadString(h);
+      StringTrimLeft(ln); StringTrimRight(ln);
+      if(ln == "") continue;
+      string pt[];
+      int np = StringSplit(ln, ',', pt);
+      if(StringGetCharacter(ln, 0) == '#')
+      {
+         // #scan,<epoch>,<symbol>,<tf>,<months>,<swing>
+         if(np >= 6 && pt[0] == "#scan" && pt[2] == _Symbol &&
+            (int)StringToInteger(pt[3]) == (int)InpLongCacheTF &&
+            (int)StringToInteger(pt[4]) == InpLongCacheMonths &&
+            (int)StringToInteger(pt[5]) == InpLongCacheSwing)
+         { okHead = true; scanT = (datetime)StringToInteger(pt[1]); }
+         continue;
+      }
+      if(!okHead || np < 5) continue;
+      double pr = StringToDouble(pt[0]);
+      if(pr <= 0.0) continue;
+      ArrayResize(g_lc, g_lcN + 1);
+      g_lc[g_lcN].price  = pr;
+      g_lc[g_lcN].score  = StringToDouble(pt[1]);
+      g_lc[g_lcN].pivots = (int)StringToInteger(pt[2]);
+      g_lc[g_lcN].firstT = (datetime)StringToInteger(pt[3]);
+      g_lc[g_lcN].lastT  = (datetime)StringToInteger(pt[4]);
+      g_lcN++;
+   }
+   FileClose(h);
+   if(!okHead) { g_lcN = 0; return false; }
+   g_lcScanTime = scanT;
+   Print("[YDS] 長期ライン: ファイルを読みました ", g_lcN, "本 (スキャン日時 ", TimeToString(scanT, TIME_DATE | TIME_MINUTES), ")");
+   return true;
+}
+
+bool LcSave()
+{
+   int h = FileOpen(LcFileName(), LcFileFlags(true));
+   if(h == INVALID_HANDLE) { Print("[YDS] 長期ライン: 保存に失敗 err=", GetLastError()); return false; }
+   FileWriteString(h, "#DKRR_LONGLINES v2.07\r\n");
+   FileWriteString(h, "#scan," + IntegerToString((long)g_lcScanTime) + "," + _Symbol + "," +
+                      IntegerToString((int)InpLongCacheTF) + "," + IntegerToString(InpLongCacheMonths) + "," +
+                      IntegerToString(InpLongCacheSwing) + "," + TimeToString(g_lcScanTime, TIME_DATE | TIME_MINUTES) + "\r\n");
+   FileWriteString(h, "price,score,pivots,first_epoch,last_epoch,last_time\r\n");
+   for(int k = 0; k < g_lcN; k++)
+      FileWriteString(h, DoubleToString(g_lc[k].price, _Digits) + "," + DoubleToString(g_lc[k].score, 2) + "," +
+                         IntegerToString(g_lc[k].pivots) + "," + IntegerToString((long)g_lc[k].firstT) + "," +
+                         IntegerToString((long)g_lc[k].lastT) + "," + TimeToString(g_lc[k].lastT, TIME_DATE | TIME_MINUTES) + "\r\n");
+   FileClose(h);
+   return true;
+}
+
+// H4を InpLongCacheMonths ヶ月前から読み、スイング高値・安値を集めて1本にまとめる
+bool LcScan()
+{
+   datetime nowT = TimeCurrent();
+   datetime from = nowT - (datetime)((long)MathMax(1, InpLongCacheMonths) * 30 * 86400);
+   MqlRates r[];
+   ArraySetAsSeries(r, false);
+   int n = CopyRates(_Symbol, InpLongCacheTF, from, nowT, r);
+   if(n < 60) return false;                          // 履歴の読み込み中など(あとで再試行)
+   int R = MathMax(1, InpLongCacheSwing);
+   // ATR(14本の平均の値幅)。ラインをまとめる幅の基準
+   double sumTr = 0.0; int cTr = 0;
+   for(int b = n - 2; b > n - 16 && b >= 1; b--)
+   {
+      sumTr += MathMax(r[b].high - r[b].low, MathMax(MathAbs(r[b].high - r[b - 1].close), MathAbs(r[b].low - r[b - 1].close)));
+      cTr++;
+   }
+   if(cTr == 0 || sumTr <= 0.0) return false;
+   double atr = sumTr / cTr;
+   double tol = InpClusterAtr * atr;
+   double sep = InpMinSepAtr * atr;
+   // スイング高値・安値(最後の形成中の足は使わない)
+   double   pp[]; datetime pt[];
+   int np = 0;
+   double hiAll = -1.0, loAll = 1e18; datetime hiT = 0, loT = 0;
+   for(int i = 0; i < n - 1; i++)
+   {
+      if(r[i].high > hiAll) { hiAll = r[i].high; hiT = r[i].time; }
+      if(r[i].low  < loAll) { loAll = r[i].low;  loT = r[i].time; }
+   }
+   for(int i = R; i <= n - 2 - R; i++)
+   {
+      bool isH = true, isL = true;
+      for(int k = 1; k <= R; k++)
+      {
+         if(r[i].high < r[i - k].high || r[i].high < r[i + k].high) isH = false;
+         if(r[i].low  > r[i - k].low  || r[i].low  > r[i + k].low)  isL = false;
+      }
+      if(isH) { ArrayResize(pp, np + 1); ArrayResize(pt, np + 1); pp[np] = r[i].high; pt[np] = r[i].time; np++; }
+      if(isL) { ArrayResize(pp, np + 1); ArrayResize(pt, np + 1); pp[np] = r[i].low;  pt[np] = r[i].time; np++; }
+   }
+   if(np == 0) return false;
+   // 価格順に並べる(挿入ソート)
+   for(int a = 1; a < np; a++)
+   {
+      double kp = pp[a]; datetime kt = pt[a];
+      int w = a - 1;
+      while(w >= 0 && pp[w] > kp) { pp[w + 1] = pp[w]; pt[w + 1] = pt[w]; w--; }
+      pp[w + 1] = kp; pt[w + 1] = kt;
+   }
+   // 近い価格を1本にまとめる
+   LcLine cl[]; int nc = 0;
+   double span = (double)MathMax(1, (long)(nowT - from));
+   int a = 0;
+   while(a < np)
+   {
+      double sum = pp[a]; int cnt = 1; datetime t0 = pt[a], t1 = pt[a];
+      int b = a + 1;
+      while(b < np && pp[b] - sum / cnt <= tol)
+      {
+         sum += pp[b]; cnt++;
+         if(pt[b] < t0) t0 = pt[b];
+         if(pt[b] > t1) t1 = pt[b];
+         b++;
+      }
+      ArrayResize(cl, nc + 1);
+      cl[nc].price  = sum / cnt;
+      cl[nc].pivots = cnt;
+      cl[nc].firstT = t0;
+      cl[nc].lastT  = t1;
+      cl[nc].score  = cnt + (double)(t1 - from) / span;     // まとめた数 + 新しさ(0〜1)
+      nc++;
+      a = b;
+   }
+   // 期間内の最高値・最安値のラインは必ず含める → 残りは点数の高い順(最小間隔を守る)
+   g_lcN = 0;
+   ArrayResize(g_lc, 0);
+   double ex[2]; ex[0] = hiAll; ex[1] = loAll;
+   datetime ext[2]; ext[0] = hiT; ext[1] = loT;
+   for(int e = 0; e < 2; e++)
+   {
+      ArrayResize(g_lc, g_lcN + 1);
+      g_lc[g_lcN].price = ex[e]; g_lc[g_lcN].pivots = 1; g_lc[g_lcN].firstT = ext[e]; g_lc[g_lcN].lastT = ext[e];
+      g_lc[g_lcN].score = 1.0;
+      g_lcN++;
+   }
+   bool usedC[]; ArrayResize(usedC, nc); ArrayInitialize(usedC, false);
+   int maxN = MathMax(2, InpLongCacheMax);
+   while(g_lcN < maxN)
+   {
+      int best = -1; double bs = -1.0;
+      for(int c = 0; c < nc; c++)
+      {
+         if(usedC[c] || cl[c].score <= bs) continue;
+         bool nearC = false;
+         for(int q = 0; q < g_lcN; q++) if(MathAbs(g_lc[q].price - cl[c].price) < sep) { nearC = true; break; }
+         if(nearC) { usedC[c] = true; continue; }
+         best = c; bs = cl[c].score;
+      }
+      if(best < 0) break;
+      usedC[best] = true;
+      ArrayResize(g_lc, g_lcN + 1);
+      g_lc[g_lcN] = cl[best];
+      g_lcN++;
+   }
+   g_lcScanTime = nowT;
+   Print("[YDS] 長期ライン: ", TfName(InpLongCacheTF), "を", InpLongCacheMonths, "ヶ月前からスキャン(", n, "本) → ", g_lcN, "本を保存");
+   return true;
+}
+
+// 新しい足ごとに呼ぶ(軽い判定だけ。スキャンは、ファイルが無い/古い時と一定時間ごと)
+void LcService()
+{
+   if(!InpUseLongCache) return;
+   if(!g_lcLoaded) { g_lcLoaded = true; LcLoad(); }
+   datetime nowT = TimeCurrent();
+   if(g_lcNextTry > nowT) return;
+   bool due = (g_lcScanTime == 0) || (nowT - g_lcScanTime >= (datetime)((long)MathMax(1, InpLongCacheRefreshH) * 3600));
+   if(!due) return;
+   if(LcScan()) LcSave();
+   else
+   {
+      g_lcNextTry = nowT + 120;                     // 履歴の読み込み待ちなど。2分後に再試行(それまでは今のラインを使う)
+      Print("[YDS] 長期ライン: スキャンできませんでした(履歴が不足)。2分後に再試行します");
+   }
+}
+
 void ComputeImportantLines()
 {
    g_impN = 0;
@@ -951,6 +1212,8 @@ void ComputeImportantLines()
       g_imp[g_impN].firstTime = firstT;
       g_imp[g_impN].tfMask    = confMask;
       g_imp[g_impN].nTf       = nTf;
+      g_imp[g_impN].forced    = false;
+      g_imp[g_impN].fromCache = false;
       g_impN++;
    }
    if(g_impN == 0) return;
@@ -964,14 +1227,79 @@ void ComputeImportantLines()
       g_imp[w + 1] = kk;
    }
    double sepTol = InpMinSepAtr * atrH;
+   int n0 = g_impN;
+   YLine pool[]; ArrayResize(pool, n0);
+   for(int a = 0; a < n0; a++) pool[a] = g_imp[a];            // 点数順の候補(コピー)
+   bool used[]; ArrayResize(used, n0); ArrayInitialize(used, false);
    int kept = 0;
-   for(int a = 0; a < g_impN && kept < MathMax(1, InpImpLineMax); a++)
+   for(int a = 0; a < n0 && kept < MathMax(1, InpImpLineMax); a++)
    {
       bool tooClose = false;
-      for(int b2 = 0; b2 < kept; b2++) if(MathAbs(g_imp[b2].price - g_imp[a].price) < sepTol) { tooClose = true; break; }
+      for(int b2 = 0; b2 < kept; b2++) if(MathAbs(g_imp[b2].price - pool[a].price) < sepTol) { tooClose = true; break; }
       if(tooClose) continue;
-      if(kept != a) g_imp[kept] = g_imp[a];
+      g_imp[kept] = pool[a]; used[a] = true;
       kept++;
+   }
+   // ★2026-11-20追加: 現在値の上側・下側のそれぞれに、最低InpImpMinPerSide本を残す(急な上げ下げで、片側にラインが無くなりRR候補がゼロになるのを防ぐ)
+   if(InpImpMinPerSide > 0 && m >= 1)
+   {
+      double curP = g_hrr[m - 1].close;
+      for(int sd = 0; sd < 2; sd++)
+      {
+         bool above = (sd == 0);
+         int c = 0;
+         for(int q = 0; q < kept; q++) if(above ? (g_imp[q].price > curP) : (g_imp[q].price < curP)) c++;
+         for(int a = 0; a < n0 && c < InpImpMinPerSide; a++)
+         {
+            if(used[a]) continue;
+            if(above ? !(pool[a].price > curP) : !(pool[a].price < curP)) continue;
+            bool tooClose2 = false;
+            for(int b3 = 0; b3 < kept; b3++) if(MathAbs(g_imp[b3].price - pool[a].price) < sepTol) { tooClose2 = true; break; }
+            if(tooClose2) continue;
+            g_imp[kept] = pool[a]; g_imp[kept].forced = true; used[a] = true;
+            kept++; c++;
+         }
+      }
+   }
+   // ★2026-11-21追加: それでも足りない側は、長期ライン(保存ファイル)から、現在値に近い順に追加
+   if(InpUseLongCache && g_lcN > 0 && InpImpMinPerSide > 0 && m >= 1)
+   {
+      double curP2 = g_hrr[m - 1].close;
+      for(int sd = 0; sd < 2; sd++)
+      {
+         bool above = (sd == 0);
+         int c = 0;
+         for(int q = 0; q < kept; q++) if(above ? (g_imp[q].price > curP2) : (g_imp[q].price < curP2)) c++;
+         while(c < InpImpMinPerSide)
+         {
+            int best = -1; double bd = 1e18;
+            for(int a = 0; a < g_lcN; a++)
+            {
+               if(above ? !(g_lc[a].price > curP2) : !(g_lc[a].price < curP2)) continue;
+               bool tooClose3 = false;
+               for(int b4 = 0; b4 < kept; b4++) if(MathAbs(g_imp[b4].price - g_lc[a].price) < sepTol) { tooClose3 = true; break; }
+               if(tooClose3) continue;
+               double dd = MathAbs(g_lc[a].price - curP2);
+               if(dd < bd) { bd = dd; best = a; }
+            }
+            if(best < 0) break;
+            if(ArraySize(g_imp) <= kept) ArrayResize(g_imp, kept + 1);
+            g_imp[kept].price     = g_lc[best].price;
+            g_imp[kept].score     = g_imp[0].score * 0.3;        // ★2相当
+            g_imp[kept].pivots    = g_lc[best].pivots;
+            g_imp[kept].episodes  = g_lc[best].pivots;
+            g_imp[kept].wicks     = 0;
+            g_imp[kept].age       = 0;
+            g_imp[kept].isRound   = false;
+            g_imp[kept].isDaily   = false;
+            g_imp[kept].firstTime = (g_lc[best].firstT > 0) ? g_lc[best].firstT : fromTime;
+            g_imp[kept].tfMask    = 16;
+            g_imp[kept].nTf       = 1;
+            g_imp[kept].forced    = true;
+            g_imp[kept].fromCache = true;
+            kept++; c++;
+         }
+      }
    }
    g_impN = kept;
    g_impMax = g_imp[0].score;       // 点数順の先頭が最高点
@@ -1013,6 +1341,7 @@ string ImpLineText(const int n, const double cur)
    string tag = "";
    if(g_imp[n].isRound) tag += " キリ番";
    if(g_imp[n].isDaily) tag += " 前日/前週";
+   if(g_imp[n].fromCache) tag += " (長期・保存)";
    string ov = "";
    if(g_imp[n].nTf >= 2) ov = "  重なり" + IntegerToString(g_imp[n].nTf) + "(" + TfListText(g_imp[n].tfMask) + ")";
    return stars + " " + (above ? "抵抗 " : "支持 ") + DoubleToString(p, _Digits) + ov +
@@ -1222,9 +1551,9 @@ void BuildRrCandidates(const double cur)
    ArrayResize(up, g_impN); ArrayResize(dn, g_impN);
    int nu = 0, nd = 0;
    for(int n = 0; n < g_impN; n++)
-      if(StarsOf(g_imp[n].score) >= InpRrMinStars && g_imp[n].price > cur) { up[nu] = n; nu++; }
+      if((g_imp[n].forced || StarsOf(g_imp[n].score) >= InpRrMinStars) && g_imp[n].price > cur) { up[nu] = n; nu++; }   // ★2026-11-20: forced(最低本数のために追加)も対象
    for(int n = g_impN - 1; n >= 0; n--)
-      if(StarsOf(g_imp[n].score) >= InpRrMinStars && g_imp[n].price < cur) { dn[nd] = n; nd++; }
+      if((g_imp[n].forced || StarsOf(g_imp[n].score) >= InpRrMinStars) && g_imp[n].price < cur) { dn[nd] = n; nd++; }
    int wl = MathMax(1, InpRrWinLines), ll = MathMax(1, InpRrLossLines);
    // 買い: 勝ち=上 / 負け=下
    for(int w = 0; w < MathMin(wl, nu); w++)
@@ -1249,9 +1578,19 @@ void BuildRrCandidates(const double cur)
    g_rcShow = MathMin(g_rcN, MathMax(1, InpRrCandMax));
 }
 
+string RcDirTxt(const int k)   // ★2026-11-05: 向きの文字(色を変える部分)
+{
+   return (g_rc[k].dir == 1) ? "▲上昇(買い)" : "▼下降(売り)";
+}
+
+color RcDirColor(const int k)
+{
+   return (g_rc[k].dir == 1) ? InpDirBuyColor : InpDirSellColor;
+}
+
 string RcText(const int k)
 {
-   string dirTxt = (g_rc[k].dir == 1) ? "▲上昇(買い)" : "▼下降(売り)";
+   string dirTxt = RcDirTxt(k);
    return "RR" + IntegerToString(k + 1) + "  " + IntegerToString((int)MathRound(g_rc[k].rr * 100.0)) + "%  " + dirTxt +
           "   勝ち +" + DoubleToString(g_rc[k].winPips, 0) + "pips → " + DoubleToString(g_rc[k].winP, _Digits) + " ★" + IntegerToString(g_rc[k].winS) +
           "   負け -" + DoubleToString(g_rc[k].losePips, 0) + "pips → " + DoubleToString(g_rc[k].loseP, _Digits) + " ★" + IntegerToString(g_rc[k].loseS);
@@ -1294,6 +1633,7 @@ void DrawImportantLines(const datetime lastTime, const double cur)
       string nm = YDS_PFX + "IL_L" + IntegerToString(n);
       PutTrend(nm, g_imp[n].firstTime, p, lastTime, p, col, style, width, true);
       string txt = StringSubstr("★★★★★", 0, st) + " " + DoubleToString(p, _Digits);
+      if(g_imp[n].fromCache) txt += "(長期)";
       if(used) txt = "決済対象(" + tag + ") " + txt;
       PutText(nm + "_T", lastTime + (datetime)(2 * chartSec), p, txt, col, 8, ANCHOR_LEFT);
    }
@@ -1333,13 +1673,14 @@ string g_pnT[];
 color  g_pnC[];
 int    g_pnS[];
 int    g_pnY[];
+int    g_pnX[];   // ★2026-11-05: 行の左端からの位置(ピクセル)。向きの文字だけ色を変えるため、1行を複数の文字に分けて並べる
 int    g_pnN = 0;
 
-void PnAdd(const string text, const color col, const int size, const int y)
+void PnAdd(const string text, const color col, const int size, const int y, const int xoff = 0)
 {
    ArrayResize(g_pnT, g_pnN + 1); ArrayResize(g_pnC, g_pnN + 1);
-   ArrayResize(g_pnS, g_pnN + 1); ArrayResize(g_pnY, g_pnN + 1);
-   g_pnT[g_pnN] = text; g_pnC[g_pnN] = col; g_pnS[g_pnN] = size; g_pnY[g_pnN] = y;
+   ArrayResize(g_pnS, g_pnN + 1); ArrayResize(g_pnY, g_pnN + 1); ArrayResize(g_pnX, g_pnN + 1);
+   g_pnT[g_pnN] = text; g_pnC[g_pnN] = col; g_pnS[g_pnN] = size; g_pnY[g_pnN] = y; g_pnX[g_pnN] = xoff;
    g_pnN++;
 }
 
@@ -1402,6 +1743,45 @@ int PnRow(const string text, const color col, const int size, const int y, const
    return cy;
 }
 
+// ★2026-11-05追加: 空白1つの幅(ピクセル)。前後に"|"を付けて測る(末尾の空白が測定から落ちても、正しく測れる)
+int PnSpaceW(const int size)
+{
+   int a = PnTextW("|  |", size), b = PnTextW("||", size);
+   int w = (a - b) / 2;
+   return (w > 0) ? w : (int)MathRound(size * 0.7);
+}
+
+// ★2026-11-05追加: 向きの文字(dirTxt)だけ色を変える行。行を「前・向き・後ろ」の3つの文字に分け、
+//   前の文字の幅(と空白の幅)を測って、向き・後ろの位置を決める。折り返しは PnRow と同じ(折り返した行ごとに探す)。
+int PnRowDir(const string text, const color col, const int size, const int y, const int step,
+             const string dirTxt, const color dirCol)
+{
+   string ls[];
+   int n = PnWrap(text, size, InpPanelMaxW, ls);
+   int cy = y;
+   for(int k = 0; k < n; k++)
+   {
+      int p = StringFind(ls[k], dirTxt);
+      if(p < 0) PnAdd(ls[k], col, size, cy);
+      else
+      {
+         string pre  = StringSubstr(ls[k], 0, p);
+         string post = StringSubstr(ls[k], p + StringLen(dirTxt));
+         int sp1 = 0, sp2 = 0;
+         while(StringLen(pre) > 0 && StringGetCharacter(pre, StringLen(pre) - 1) == ' ') { pre = StringSubstr(pre, 0, StringLen(pre) - 1); sp1++; }
+         while(StringLen(post) > 0 && StringGetCharacter(post, 0) == ' ') { post = StringSubstr(post, 1); sp2++; }
+         int sw = PnSpaceW(size);
+         if(pre != "") PnAdd(pre, col, size, cy);
+         int xDir = ((pre != "") ? PnTextW(pre, size) : 0) + sp1 * sw;
+         PnAdd(dirTxt, dirCol, size, cy, xDir);
+         int xPost = xDir + PnTextW(dirTxt, size) + sp2 * sw;
+         if(post != "") PnAdd(post, col, size, cy, xPost);
+      }
+      cy += (k < n - 1) ? (int)MathRound(step * 0.85) : step;   // 折り返しの続きは少し詰める
+   }
+   return cy;
+}
+
 void DrawPanel(const datetime &time[], const double cur)
 {
    ObjectsDeleteAll(0, YDS_PFX + "PN_");
@@ -1426,7 +1806,7 @@ void DrawPanel(const datetime &time[], const double cur)
    if(g_rcShow == 0)
       y = PnRow("候補なし(現在値の上下に★" + IntegerToString(InpRrMinStars) + "以上の水平線が必要。)", InpPanelColor, fs, y, rowH);
    for(int k = 0; k < g_rcShow; k++)
-      y = PnRow(RcText(k), RcColor(k), fs, y, rowH);
+      y = PnRowDir(RcText(k), RcColor(k), fs, y, rowH, RcDirTxt(k), RcDirColor(k));   // ★2026-11-05: 向きの文字だけアクア/マゼンタ
    if(InpShowArrows && g_sigN > 0)
    {
       y += (int)MathRound(rowH * 0.25);
@@ -1441,7 +1821,7 @@ void DrawPanel(const datetime &time[], const double cur)
    int maxW = 0, bottom = y0;
    for(int i = 0; i < g_pnN; i++)
    {
-      int w = PnTextW(g_pnT[i], g_pnS[i]);
+      int w = g_pnX[i] + PnTextW(g_pnT[i], g_pnS[i]);   // ★2026-11-05: 分けた文字は、左端からの位置も足して、行の幅にする
       int h = g_pnS[i] * 2;
       if(w > maxW) maxW = w;
       if(g_pnY[i] + h > bottom) bottom = g_pnY[i] + h;
@@ -1472,7 +1852,7 @@ void DrawPanel(const datetime &time[], const double cur)
 
    // (4) 文字を描く
    for(int i = 0; i < g_pnN; i++)
-      PutLabel(YDS_PFX + "PN_" + IntegerToString(i), x0, g_pnY[i], g_pnT[i], g_pnC[i], g_pnS[i]);
+      PutLabel(YDS_PFX + "PN_" + IntegerToString(i), x0 + g_pnX[i], g_pnY[i], g_pnT[i], g_pnC[i], g_pnS[i]);
 }
 
 //+------------------------------------------------------------------+
@@ -1533,6 +1913,7 @@ void PublishGV(const datetime &time[])
 int OnInit()
 {
    g_lm = MathMax(1, InpSigLineMax);
+   g_lcLoaded = false; g_lcN = 0; g_lcScanTime = 0; g_lcNextTry = 0;
    InitMtfSlots();
    // バッファの並び: 描画するもの(矢印2+MTFの線8)が先、計算用(6)があと
    SetIndexBuffer(0,  BufBuy,   INDICATOR_DATA);
@@ -1805,6 +2186,7 @@ int OnCalculate(const int rates_total,
    ComputeMsrLayer(rates_total, time);
    double curPrice = close[rates_total - 1];
    BuildMtf();
+   LcService();                      // ★2026-11-21: 長期ライン(ファイル読込/たまにスキャン)。軽い判定のみ
    ComputeImportantLines();
    BuildRrCandidates(curPrice);
    DrawImportantLines(time[rates_total - 1], curPrice);
