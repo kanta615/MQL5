@@ -1,17 +1,21 @@
 //+------------------------------------------------------------------+
-//|                            Dokakotsu_jsttime_sub.mq5            |
+//|                            Dokakotsu_jsttime_sub_20.mq5            |
 //|   JST(日本時間)の毎正時ラベルを、サブウィンドウに一直線で       |
 //|   並べて表示する。価格軸に縛られないので、スクロール/ズームで    |
 //|   位置が安定し、画面から消えない。                               |
 //|   背景色・文字色・文字サイズを入力パラメータで選択できる。        |
 //|                                                                  |
-//|  ■ 更新日: 2026-10-21                                            |
+//|  ■ 更新日: 2026-11-25  世代を 20 に統一(田島さんご指示)。ファイル名を Dokakotsu_jsttime_sub_20.mq5 に(名称のみ。表示は不変)。
+//|    今週(2026-11-23〜2026-11-25)の変更履歴: このファイルの変更はなし(名前の更新のみ)。
+//|
+//|  ■ 更新日: 2026-11-22(2回目)  InpShowCursorJST(メインチャート左上にカーソル位置のJST時刻を常時表示)の初期値を true → false に変更(田島さんご指示)。
+//|    表示したい時は、入力でtrueにする。他の表示・計算の変更なし。
+//|
+//|  ■ 更新日: 2026-11-22  世代を 19 に統一(田島さんご指示)。ファイル名を Dokakotsu_jsttime_sub_19.mq5 に(名称のみ。表示は不変)。
+//|    今週(2026-11-14〜2026-11-22)の変更履歴: このファイルの変更はなし(名前の更新のみ)。
+//|
+//|  ■ 更新日: 2026-09-17                                            |
 //|    変更履歴:                                                     |
-//|      - 2026-10-21 v1.41 毎回の「再描画完了」ログを入力スイッチ   |
-//|        (InpDiagLog、既定false)で切替式に変更。M1では毎分出力され |
-//|        エキスパートタブが埋まるため。ObjectCreate失敗・          |
-//|        ChartWindowFind()=-1 等の異常時ログは従来どおり常に出力。 |
-//|      - 2026-09-17 v1.40                                          |
 //|      - メインチャート左上に「カーソル位置のJST時刻」を常時表示    |
 //|        する機能を追加(InpShowCursorJST、既定true)。田島さんより  |
 //|        「データウィンドウのTime(サーバー時刻)を見せるたびに      |
@@ -32,7 +36,7 @@
 //|    見た目のロジック(何を描画するか)自体は変更していない。       |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.41"
+#property version   "1.40"
 #property indicator_separate_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -47,10 +51,9 @@ input color  InpBgColor    = 0x1a1a1a;   // 背景色(clrNONEで背景を描画�
 input double InpYPos        = 0.5;      // サブ窓内の縦位置(0=下 1=上)
 input bool   InpAutoDST     = true;     // 夏/冬を自動判定(米国DST)
 input bool   InpManualSummer= true;     // 手動時の夏時間(InpAutoDST=false時)
-input bool   InpShowCursorJST = true;   // ★2026-09-17追加: メインチャート左上にカーソル位置のJST時刻を常時表示
+input bool   InpShowCursorJST = false;  // ★2026-09-17追加→2026-11-22: 既定をtrue→falseに変更。メインチャート左上にカーソル位置のJST時刻を常時表示
 input color  InpCursorJSTColor = clrYellow; // カーソルJST表示の文字色
 input int    InpCursorJSTFontSize = 10;     // カーソルJST表示の文字サイズ
-input bool   InpDiagLog = false;          // ★2026-10-21追加: 再描画完了ログを毎回出力(診断用)
 
 string   PFX       = "DKjstax_";
 string   CPFX      = "DKjstcursor_";     // ★カーソルJST表示ラベル専用プレフィックス(PFXの一括削除対象から外すため別出し)
@@ -316,7 +319,6 @@ int OnCalculate(const int rates_total,
 
    // ★診断用: この再描画で何本のラベルを作れた/失敗したかを必ず1行残す。
    //   created=0が続くようならbegin~rates_totalの範囲やInpAxisBarsの設定を疑う。
-   if(InpDiagLog)
    Print("[JSTsub] 再描画完了 win=", win, " created=", created, " failed=", failed,
          " begin=", begin, " rates_total=", rates_total);
 

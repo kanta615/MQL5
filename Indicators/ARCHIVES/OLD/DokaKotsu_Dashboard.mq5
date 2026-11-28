@@ -7,6 +7,14 @@
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
 //|                                                                    |
+//|  ■ 修正日: 2026-11-04  修正内容(エントリー時のRR・決済日時を表示)          |
+//|    田島さんご要望。①「エントリータイミング」(Ready!/IN！)の行の右端に、   |
+//|    エントリー中(IN)の間だけ、エントリー時のRR比を「RR120%」で表示         |
+//|    (100%未満は紫)。値はEAが公開するGV DK_EA_ENTRY_RR_<magic>を読むだけ。   |
+//|    ②「LOSE -84.0p」「WIN +55.2p」の行の左端に、その決済日時を               |
+//|    「決済 11/02 22:50」(日本時間)で表示(決済済みの結果が出ている時だけ)。    |
+//|    連勝表示(🔥N連勝)は、行の中央へ移動。表示専用で、判定は変更なし。         |
+//|                                                                    |
 //|  ■ 修正日: 2026-10-30  修正内容(手動停止の表示を目立たせる)           |
 //|    田島さんご要望。10/30に手動停止(ダッシュボードの■)が一日中入って   |
 //|    いたのに気づけなかったため、①表示テキストを「取引停止中」→         |
@@ -1280,6 +1288,7 @@ void CreatePanel()
    string statusTxt; color statusCol; double demoProgress;
    bool showMsgIn=false, showMsgGet=false, showMsgLose=false;
    string streakTxt="", pipsTxt=""; color pipsCol=COL_GREEN;
+   datetime closeTimeShow=0;   // ★2026-11-04: 「LOSE -84p」行の左に出す決済日時(サーバー時間。決済済みの結果を出す時だけ値が入る)
 
    if(InpUseRealLogic)
      {
@@ -1308,6 +1317,7 @@ void CreatePanel()
                double pips  = GlobalVariableCheck(gvPips) ? GlobalVariableGet(gvPips) : 0.0;   // 符号付き(勝ち=正/負け=負)
                bool   isWin = GlobalVariableCheck(gvWin)  ? (GlobalVariableGet(gvWin)!=0.0) : (pips>=0.0);
                int    ws    = GlobalVariableCheck(gvWs)   ? (int)GlobalVariableGet(gvWs) : 0;
+               closeTimeShow = closeTime;
                if(isWin) { showMsgGet=true;  pipsTxt=StringFormat("WIN +%.1fp", pips); pipsCol=COL_GREEN; }
                else      { showMsgLose=true; pipsTxt=StringFormat("LOSE %.1fp", pips); pipsCol=COL_RED;  }
                streakTxt = (ws>=2) ? StringFormat("🔥%d連勝", ws) : "";
@@ -1329,6 +1339,28 @@ void CreatePanel()
 
    // ① 状態テキスト(18pt、大きく)
    CreateLabelText("entrystatus",x+pad,curY,statusTxt,statusCol,12);
+   // ★2026-11-04追加: エントリー中(IN)の間だけ、同じ行の右端に、エントリー時のRR比を「RR120%」で表示。
+   //   値はEAが公開するGV DK_EA_ENTRY_RR_<magic>(倍率。-1=算出不可)を読むだけ。100%未満は紫。
+   {
+      string rrTxt="";
+      color  rrCol=clrWhite;
+      if(InpUseRealLogic && showMsgIn)
+        {
+         string gvRr=StringFormat("DK_EA_ENTRY_RR_%d",InpMagic);
+         if(GlobalVariableCheck(gvRr))
+           {
+            double rrv=GlobalVariableGet(gvRr);
+            if(rrv>=0.0)
+              {
+               int pct=(int)MathRound(rrv*100.0);
+               rrTxt=StringFormat("RR%d%%",pct);
+               rrCol=(pct<100) ? C'199,125,255' : clrWhite;
+              }
+           }
+        }
+      if(rrTxt!="") CreateLabelText("entryrr",rightEdge,curY+1,rrTxt,rrCol,11,"Arial",ANCHOR_RIGHT_UPPER);
+      else          ObjectDelete(0,PFX+"entryrr");
+   }
    curY+=(int)(22*sc);
 
    // ② グラデーションバー本体(Canvas、シマー付き)
@@ -1454,7 +1486,18 @@ void CreatePanel()
       color pipsColSafe = (pipsTxt=="") ? COL_BG : pipsCol;
       string streakShow = (streakTxt=="") ? " " : streakTxt;
       string pipsShow   = (pipsTxt=="")   ? " " : pipsTxt;
-      CreateLabelText("gamestreak",x+pad,curY+rowH/2-6,streakShow,streakCol,9);
+      // ★2026-11-04追加: 結果(WIN/LOSE)が出ている時だけ、行の左端にその決済日時(日本時間)を「決済 11/02 22:50」の形で出す。
+      //   連勝表示(🔥N連勝)は、左端が使われるため、行の中央へ移した。
+      string closeShow = " ";
+      color  closeCol  = COL_BG;
+      if(closeTimeShow>0 && (showMsgGet || showMsgLose))
+        {
+         MqlDateTime cj; TimeToStruct(closeTimeShow+ServerToJstShiftDKD(),cj);
+         closeShow=StringFormat("決済 %02d/%02d %02d:%02d",cj.mon,cj.day,cj.hour,cj.min);
+         closeCol=C'190,190,190';
+        }
+      CreateLabelText("gameclose",x+pad,curY+rowH/2-5,closeShow,closeCol,8);
+      CreateLabelText("gamestreak",x+pad+innerW/2,curY+rowH/2-6,streakShow,streakCol,9,"Arial",ANCHOR_UPPER);
       CreateLabelText("gamepips",rightEdge,curY+rowH/2-6,pipsShow,pipsColSafe,10,"Arial",ANCHOR_RIGHT_UPPER);
       curY+=rowH+(int)(6*sc);
      }

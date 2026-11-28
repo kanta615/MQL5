@@ -5,8 +5,13 @@
 //|   位置が安定し、画面から消えない。                               |
 //|   背景色・文字色・文字サイズを入力パラメータで選択できる。        |
 //|                                                                  |
-//|  ■ 更新日: 2026-09-17                                            |
+//|  ■ 更新日: 2026-10-21                                            |
 //|    変更履歴:                                                     |
+//|      - 2026-10-21 v1.41 毎回の「再描画完了」ログを入力スイッチ   |
+//|        (InpDiagLog、既定false)で切替式に変更。M1では毎分出力され |
+//|        エキスパートタブが埋まるため。ObjectCreate失敗・          |
+//|        ChartWindowFind()=-1 等の異常時ログは従来どおり常に出力。 |
+//|      - 2026-09-17 v1.40                                          |
 //|      - メインチャート左上に「カーソル位置のJST時刻」を常時表示    |
 //|        する機能を追加(InpShowCursorJST、既定true)。田島さんより  |
 //|        「データウィンドウのTime(サーバー時刻)を見せるたびに      |
@@ -27,7 +32,7 @@
 //|    見た目のロジック(何を描画するか)自体は変更していない。       |
 //+------------------------------------------------------------------+
 #property copyright "DokaKotsu"
-#property version   "1.40"
+#property version   "1.41"
 #property indicator_separate_window
 #property indicator_buffers 0
 #property indicator_plots   0
@@ -45,6 +50,7 @@ input bool   InpManualSummer= true;     // 手動時の夏時間(InpAutoDST=fals
 input bool   InpShowCursorJST = true;   // ★2026-09-17追加: メインチャート左上にカーソル位置のJST時刻を常時表示
 input color  InpCursorJSTColor = clrYellow; // カーソルJST表示の文字色
 input int    InpCursorJSTFontSize = 10;     // カーソルJST表示の文字サイズ
+input bool   InpDiagLog = false;          // ★2026-10-21追加: 再描画完了ログを毎回出力(診断用)
 
 string   PFX       = "DKjstax_";
 string   CPFX      = "DKjstcursor_";     // ★カーソルJST表示ラベル専用プレフィックス(PFXの一括削除対象から外すため別出し)
@@ -310,6 +316,7 @@ int OnCalculate(const int rates_total,
 
    // ★診断用: この再描画で何本のラベルを作れた/失敗したかを必ず1行残す。
    //   created=0が続くようならbegin~rates_totalの範囲やInpAxisBarsの設定を疑う。
+   if(InpDiagLog)
    Print("[JSTsub] 再描画完了 win=", win, " created=", created, " failed=", failed,
          " begin=", begin, " rates_total=", rates_total);
 

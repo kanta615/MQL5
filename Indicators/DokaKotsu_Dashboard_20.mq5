@@ -1,8 +1,15 @@
 ﻿//+------------------------------------------------------------------+
-//|                                        DokaKotsu_Dashboard.mq5    |
+//|                                        DokaKotsu_Dashboard_20.mq5    |
 //|  dokakotu_dashboard_v8_4.html のデザインをMT5チャート上に         |
 //|  再現するパネル（第一段階：機能なし・表示のみ／固定サンプル値）   |
 //|                                                                    |
+//|  ■ 更新日: 2026-11-25  世代を 20 に統一(田島さんご指示)。ファイル名を DokaKotsu_Dashboard_20.mq5 に、短縮名(INDICATOR_SHORTNAME)を DokaKotsu_Dashboard_20 に。
+//|    今週(2026-11-23〜2026-11-25)の変更履歴: このファイルの変更はなし(名前の更新のみ)。表示・計算の変更なし。
+//|
+//|  ■ 更新日: 2026-11-22  世代を 19 に統一(田島さんご指示)。ファイル名を DokaKotsu_Dashboard_20.mq5 に、短縮名(INDICATOR_SHORTNAME)を DokaKotsu_Dashboard_19 に。
+//|    今週(2026-11-14〜2026-11-22)の変更履歴: このファイルの変更はなし(名前の更新のみ)。表示・計算の変更なし。
+//|    ※本体インジ・Calendarの検出は、名前の接頭辞(DokaKotsu_indicator_ / DokaKotsu_Calendar)だけで行うので、番号を直す必要はない。
+//|
 //|  【役割分担の絶対ルール】本ファイルは表示専用パネルである。       |
 //|   トレードロジックは一切持たない(本体インジのバッファ・EAが書く   |
 //|   GlobalVariable・Calendarが書くファイルを「読むだけ」)。          |
@@ -1654,7 +1661,7 @@ void CreatePanel()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   IndicatorSetString(INDICATOR_SHORTNAME,"DokaKotsu_Dashboard");
+   IndicatorSetString(INDICATOR_SHORTNAME,"DokaKotsu_Dashboard_20");
    // 価格チャート（ローソク足・MA等の重ね書きインジケーター）がオブジェクトより
    // 前面に来ないようにする＝パネルが常に最前面に表示される
    ChartSetInteger(0,CHART_FOREGROUND,false);
